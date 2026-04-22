@@ -1,4 +1,6 @@
+mod bvh;
 mod material;
+mod mesh;
 mod object;
 mod ray;
 mod renderer;
@@ -6,6 +8,7 @@ mod scene;
 mod sphere;
 mod vector;
 
+pub use mesh::TriangleMeshBuilder;
 pub use sphere::SphereBuilder;
 
 pub use material::Material;

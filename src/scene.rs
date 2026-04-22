@@ -76,28 +76,24 @@ impl Scene {
                     let eta = n_1 / n_2;
                     let k = 1.0 - eta.powi(2) * (1.0 - cos_i.powi(2));
 
-                    let reflected_ray = Ray::with_time(
-                        &intersection.intersection + &normal * EPS,
-                        &ray.direction - 2. * ray.direction.dot(&normal) * &normal,
-                        ray.time,
-                    );
-                    let reflected_color = self.get_color::<CONFIG>(&reflected_ray, depth + 1);
-
-                    if k < 0. {
-                        return reflected_color;
-                    }
-
-                    let refracted_ray = Ray::with_time(
-                        &intersection.intersection - &normal * EPS,
-                        eta * (&ray.direction - cos_i * &normal) - k.sqrt() * &normal,
-                        ray.time,
-                    );
-                    let refracted_color = self.get_color::<CONFIG>(&refracted_ray, depth + 1);
-
                     let r0 = ((n_1 - n_2) / (n_1 + n_2)).powi(2);
                     let schlick = r0 + (1.0 - r0) * (1.0 - cos_i.abs()).powi(5);
 
-                    return schlick * reflected_color + (1.0 - schlick) * refracted_color;
+                    if k < 0. || fastrand::f64() < schlick {
+                        let reflected_ray = Ray::with_time(
+                            &intersection.intersection + &normal * EPS,
+                            &ray.direction - 2. * ray.direction.dot(&normal) * &normal,
+                            ray.time,
+                        );
+                        return self.get_color::<CONFIG>(&reflected_ray, depth + 1);
+                    } else {
+                        let refracted_ray = Ray::with_time(
+                            &intersection.intersection - &normal * EPS,
+                            eta * (&ray.direction - cos_i * &normal) - k.sqrt() * &normal,
+                            ray.time,
+                        );
+                        return self.get_color::<CONFIG>(&refracted_ray, depth + 1);
+                    }
                 }
 
                 let intersection_origin = &intersection.intersection + &intersection.normal * EPS;

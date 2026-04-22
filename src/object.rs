@@ -1,4 +1,6 @@
-use crate::{material::MaterialIndex, ray::Ray, sphere::Sphere, vector::Vector};
+use crate::{
+    material::MaterialIndex, mesh::TriangleMesh, ray::Ray, sphere::Sphere, vector::Vector,
+};
 
 #[derive(Debug)]
 pub struct Intersection<T> {
@@ -29,6 +31,7 @@ pub trait ComputeIntersection {
 #[derive(Debug)]
 pub enum Object {
     Sphere(Sphere),
+    TriangleMesh(TriangleMesh),
 }
 
 impl Object {}
@@ -39,12 +42,14 @@ impl ComputeIntersection for Object {
     fn intersect(&self, ray: &Ray) -> Option<Intersection<Self::Index>> {
         match self {
             Object::Sphere(sphere) => sphere.intersect(ray),
+            Object::TriangleMesh(mesh) => mesh.intersect(ray),
         }
     }
 
     fn shadow_intersect(&self, ray: &Ray) -> Option<f64> {
         match self {
             Object::Sphere(sphere) => sphere.shadow_intersect(ray),
+            Object::TriangleMesh(mesh) => mesh.shadow_intersect(ray),
         }
     }
 }
