@@ -77,6 +77,18 @@ impl Vector {
             z: self.x * rhs.y - rhs.x * self.y,
         }
     }
+
+    #[inline]
+    #[must_use]
+    pub const fn axis(&self) -> usize {
+        if self.x > self.y && self.x > self.z {
+            0
+        } else if self.y > self.z {
+            1
+        } else {
+            2
+        }
+    }
 }
 
 impl Default for Vector {

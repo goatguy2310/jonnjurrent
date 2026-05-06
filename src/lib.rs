@@ -13,6 +13,8 @@ pub use sphere::SphereBuilder;
 
 pub use material::Material;
 
+pub use bvh::BVHConfig;
+
 pub use scene::SceneBuilder;
 pub use scene::SceneConfig;
 

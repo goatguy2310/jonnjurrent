@@ -21,28 +21,43 @@ pub struct Scene {
 }
 
 impl Scene {
+    #[inline]
     pub fn add_object(&mut self, object: Object) {
         self.objects.push(object);
     }
 
+    #[inline]
+    #[must_use]
     pub fn add_material(&mut self, material: Material) -> MaterialIndex {
         let index = self.materials.len();
         self.materials.push(material);
         MaterialIndex(index)
     }
 
+    #[inline]
+    #[must_use]
+    pub fn add_lambertian(&mut self, color: impl Into<Vector>) -> MaterialIndex {
+        self.add_material(Material::Lambertian(color.into()))
+    }
+
     pub fn get_camera_center(&self) -> Vector {
         self.camera_center.clone()
     }
 
-    pub fn get_fov(&self) -> f64 {
+    #[inline]
+    #[must_use]
+    pub const fn get_fov(&self) -> f64 {
         self.fov
     }
 
-    pub fn get_gamma(&self) -> f64 {
+    #[inline]
+    #[must_use]
+    pub const fn get_gamma(&self) -> f64 {
         self.gamma
     }
 
+    #[inline]
+    #[must_use]
     pub fn get_simple_color(&self, ray: &Ray) -> Vector {
         match self.intersect(ray) {
             Some(_) => Vector::ONE,

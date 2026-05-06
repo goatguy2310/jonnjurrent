@@ -1,16 +1,21 @@
 use core::f64::consts::PI;
 
+use renderer::{BVHConfig, RenderConfig, SceneConfig, render_config, scene_config};
 use renderer::{ImageRenderer, Material, SceneBuilder, SphereBuilder, TriangleMeshBuilder};
-use renderer::{RenderConfig, SceneConfig, render_config, scene_config};
 
 render_config!(RConf, width: 512, height: 512, samples: 24);
 scene_config!(SConf);
+
+struct BVHConf;
+impl BVHConfig for BVHConf {
+    const USE_SAH: bool = false;
+}
 
 fn main() {
     let mut scene = SceneBuilder::new()
         .camera_center(0., 0., 55.)
         .light_position(-10., 20., 40.)
-        .light_intensity(3E7)
+        .light_intensity(1E7)
         .fov(60. * PI / 180.)
         .gamma(2.2)
         .max_light_bounce(8)
@@ -28,7 +33,7 @@ fn main() {
         .read_obj_file("assets/cat/cat.obj")
         .scale_translate(0.6, [0., -10., 0.])
         .material(color1)
-        .build();
+        .build::<BVHConf>();
 
     let wall_left = SphereBuilder::new()
         .center(-1000., 0., 0.)

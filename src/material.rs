@@ -1,6 +1,6 @@
 use crate::vector::Vector;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct MaterialIndex(pub usize);
 
 #[derive(Debug)]
