@@ -1,2 +1,3 @@
 main
 cat_model/
+*.o

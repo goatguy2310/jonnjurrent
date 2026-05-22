@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../math/geometry.h"
+#include "bbox.h"
 
 class TriangleIndices {
 public:
@@ -18,4 +19,6 @@ public:
 	Vector A, e1, e2;
 	Vector N;
 	Vector centroid;
+
+	BoundingBox bbox;
 };

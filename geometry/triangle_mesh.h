@@ -24,11 +24,14 @@ public:
 
 			tri.N = cross(tri.e1, tri.e2);
 			tri.centroid = tri.A + (tri.e1 + tri.e2) / 3;
+
+			tri.bbox = BoundingBox::init();
+			for (int i = 0; i < 3; i++) tri.bbox.merge(vertices[tri.vtx[i]]);
 		}
 	}
 
-	void buildAccel() {
-		accel.build(vertices, indices);
+	void buildAccel(int num_threads) {
+		accel.build(vertices, indices, num_threads);
 	}
 
 	// first scale and then translate the current object
@@ -84,16 +87,12 @@ public:
 	// bounding box of indices in either vertices or indices, denoted by vtx
 	BoundingBox calculateBoundingBox(int start, int end, bool vtx = true) {
 		BoundingBox ret;
-		ret.Bmin = Vector(
-			std::numeric_limits<double>::max(),
-			std::numeric_limits<double>::max(),
-			std::numeric_limits<double>::max()
-		);
-		ret.Bmax = Vector(
-			std::numeric_limits<double>::lowest(),
-			std::numeric_limits<double>::lowest(),
-			std::numeric_limits<double>::lowest()
-		);
+
+		double dmax = std::numeric_limits<double>::max();
+		double dmin = std::numeric_limits<double>::lowest();
+
+		ret.Bmin = Vector(dmax, dmax, dmax);
+		ret.Bmax = Vector(dmin, dmin, dmin);
 		if (vtx) {
 			for (int i = start; i < end; i++) {
 				const Vector& vert = vertices[i];

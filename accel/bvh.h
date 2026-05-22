@@ -1,106 +1,139 @@
 #pragma once
 
 #include <algorithm>
+#include <numeric>
 
 #include "../math/geometry.h"
 #include "../geometry/object.h"
 #include "../geometry/triangle_indices.h"
 #include "../geometry/bbox.h"
+#include "utils.h"
 
 class BVHNode {
 public:
 	BoundingBox box;
-	int start_idx, end_idx; // indices of the range in the original indices array
+	int start, end; // indices of the range in the original indices array
 	int left, right; // indices of the left and right child in the bvh_node array
 	bool has_child = false;
 };
 
 class BVH {
 public:
-	void build(const std::vector<Vector>& vertices, std::vector<TriangleIndices>& indices) {
-		bvhnodes.clear();
-		bvhnodes.reserve(indices.size() * 2 - 1); // Perfect reserve for a full binary tree
-		bvhnodes.emplace_back();
-		buildBVHNode(vertices, indices, 0, 0, indices.size());
+	void build(const std::vector<Vector>& vertices, std::vector<TriangleIndices>& indices, int num_threads) {
+		bvh_nodes.clear();
+		bvh_nodes.reserve(indices.size() * 2); // reserve for binary tree
+		bvh_nodes.emplace_back();
+
+		std::vector<int> index_map(indices.size());
+		std::iota(index_map.begin(), index_map.end(), 0);
+
+		buildBVHNode(vertices, indices, index_map, 0, 0, indices.size());
+
+		std::vector<TriangleIndices> temp(indices.size());
+		for (size_t i = 0; i < indices.size(); i++) {
+			temp[i] = std::move(indices[index_map[i]]);
+		}
+		indices = std::move(temp);
 	}
 
-	// node_idx: index in the node vector; start_idx, end_idx: index in the vertices vector
-	void buildBVHNode(const std::vector<Vector>& vertices, std::vector<TriangleIndices>& indices, int node_idx, int start_idx, int end_idx) {
-		bvhnodes[node_idx].start_idx = start_idx;
-		bvhnodes[node_idx].end_idx = end_idx;
-		if (end_idx - start_idx < 5) {
-			bvhnodes[node_idx].box = calculateBBoxIndices(vertices, indices, start_idx, end_idx);
+	// node_idx: index in the node vector; start, end: index in the vertices vector
+	void buildBVHNode(const std::vector<Vector>& vertices, std::vector<TriangleIndices>& indices, std::vector<int>& index_map, int node_idx, int start, int end) {
+		bvh_nodes[node_idx].start = start;
+		bvh_nodes[node_idx].end = end;
+
+		bvh_nodes[node_idx].box = computeBounds(indices, index_map, start, end);
+		BoundingBox& bounds = bvh_nodes[node_idx].box;
+		if (end - start < 5) return;
+
+		int best_axis = -1;
+		int best_split_index = -1;
+
+		// setup global bins for binned sah & reciprocal of total for each axis
+		Bin global_bins[3][BINS_COUNT];
+		double scales[3];
+		for (int axis = 0; axis < 3; axis++) {
+			scales[axis] = BINS_COUNT / (bounds.Bmax[axis] - bounds.Bmin[axis]);
 		}
 
-		Vector diag = bvhnodes[node_idx].box.Bmax - bvhnodes[node_idx].box.Bmin;
-		Vector center = bvhnodes[node_idx].box.Bmin + diag * 0.5;
+		// sequential binning
+		for (int i = start; i < end; i++) {
+			int idx = index_map[i];
+			for (int axis = 0; axis < 3; axis++) {
+				if (bounds.Bmax[axis] - bounds.Bmin[axis] < eps) continue;
+				double centroid = indices[idx].centroid[axis];
+				int bin_idx = std::clamp((int)((centroid - bounds.Bmin[axis]) * scales[axis]), 0, BINS_COUNT - 1);
+				global_bins[axis][bin_idx].count++;
+				global_bins[axis][bin_idx].bounds.merge(indices[idx].bbox);
+			}
+		}
 
-		int longest_ax = std::distance(diag.data, std::max_element(diag.data, diag.data + 3));
-		int pivot_idx = start_idx;
+		// evaluate sah cost to find best split
+		evaluateSAH(global_bins, bounds, end - start, best_axis, best_split_index);
 
-		for (int i = start_idx; i < end_idx; i++) {
-			if (indices[i].centroid[longest_ax] < center[longest_ax]) {
-				std::swap(indices[i], indices[pivot_idx]);
+		// if no split is better than parent, make it a leaf
+		if (best_axis == -1) {
+			bvh_nodes[node_idx].box = bounds;
+			return;
+		}
+
+		// sequential partition array based on best split
+		double scale = BINS_COUNT / (bounds.Bmax[best_axis] - bounds.Bmin[best_axis]);
+		int pivot_idx = start;
+		for (int i = start; i < end; i++) {
+			double centroid = indices[index_map[i]].centroid[best_axis];
+			int bin_idx = std::clamp((int)((centroid - bounds.Bmin[best_axis]) * scale), 0, BINS_COUNT - 1);
+			
+			if (bin_idx <= best_split_index) {
+				std::swap(index_map[i], index_map[pivot_idx]);
 				pivot_idx++;
 			}
 		}
 
-		if (end_idx - start_idx < 5) return;
+		int left_idx = bvh_nodes.size();
+		bvh_nodes.emplace_back();
+		int right_idx = bvh_nodes.size();
+		bvh_nodes.emplace_back();
 
-		// Fallback to equal-count split when spatial split degenerates.
-		if (pivot_idx <= start_idx || pivot_idx >= end_idx) {
-			pivot_idx = start_idx + (end_idx - start_idx) / 2;
-		}
+		bvh_nodes[node_idx].left = left_idx;
+		bvh_nodes[node_idx].right = right_idx;
+		bvh_nodes[node_idx].has_child = true;
 
-		if (pivot_idx <= start_idx || pivot_idx >= end_idx) return;
-
-		bvhnodes[node_idx].left = bvhnodes.size();
-		bvhnodes.emplace_back();
-		bvhnodes[node_idx].right = bvhnodes.size();
-		bvhnodes.emplace_back();
-		bvhnodes[node_idx].has_child = true;
-
-		buildBVHNode(vertices, indices, bvhnodes[node_idx].left, start_idx, pivot_idx);
-		buildBVHNode(vertices, indices, bvhnodes[node_idx].right, pivot_idx, end_idx);
-
-		bvhnodes[node_idx].box = bvhnodes[bvhnodes[node_idx].left].box;
-		bvhnodes[node_idx].box.merge(bvhnodes[bvhnodes[node_idx].right].box);
+		buildBVHNode(vertices, indices, index_map, left_idx, start, pivot_idx);
+		buildBVHNode(vertices, indices, index_map, right_idx, pivot_idx, end);
 	}
 
-	BoundingBox calculateBBoxIndices(const std::vector<Vector>& vertices, const std::vector<TriangleIndices>& indices, int start, int end) {
-		BoundingBox ret;
+	BoundingBox computeBounds(const std::vector<TriangleIndices>& indices, const std::vector<int>& index_map, int start, int end) {
+		BoundingBox ret = BoundingBox::init();
 
-		double dmax = std::numeric_limits<double>::max();
-		double dmin = std::numeric_limits<double>::lowest();
-
-		ret.Bmin = Vector(dmax, dmax, dmax);
-		ret.Bmax = Vector(dmin, dmin, dmin);
-		for (int i = start; i < end; i++) {
-			const TriangleIndices& ind = indices[i];
-			for (int j = 0; j < 3; j++) { 
-				const Vector& vert = vertices[ind.vtx[j]];
-
-				for (int k = 0; k < 3; k++) {
-					ret.Bmin[k] = std::min(ret.Bmin[k], vert[k]);
-					ret.Bmax[k] = std::max(ret.Bmax[k], vert[k]);
-				}
-			}
-		}
+		for (int i = start; i < end; i++) ret.merge(indices[index_map[i]].bbox);
 		return ret;
 	}
 
 	bool intersect(const Ray& ray, const std::vector<Vector>& vertices, const std::vector<TriangleIndices>& indices, const std::vector<Vector>& normals, const std::vector<Vector>& uvs, Intersection& best_hit, int idx = 0) const {
-		if (bvhnodes.empty()) return false;
+		if (bvh_nodes.empty()) return false;
 
-		const BVHNode& node = bvhnodes[idx];
+		const BVHNode& node = bvh_nodes[idx];
 		bool found = false;
 		if (node.has_child) {
-			bool left_hit = false, right_hit = false;
-			if (bvhnodes[node.left].box.intersect(ray, best_hit.t)) left_hit = intersect(ray, vertices, indices, normals, uvs, best_hit, node.left);
-			if (bvhnodes[node.right].box.intersect(ray, best_hit.t)) right_hit = intersect(ray, vertices, indices, normals, uvs, best_hit, node.right);
-			found = left_hit || right_hit;
+			auto t_left = bvh_nodes[node.left].box.intersect(ray, best_hit.t);
+			auto t_right = bvh_nodes[node.right].box.intersect(ray, best_hit.t);
+
+			int first = node.left, second = node.right;
+
+			// test the nearer child first so may allow early pruning
+			if (t_left && t_right && *t_right < *t_left) {
+				std::swap(first, second);
+				std::swap(t_left, t_right);
+			}
+
+			if (t_left && intersect(ray, vertices, indices, normals, uvs, best_hit, first)) {
+				found = true;
+			}
+			if (t_right && *t_right < best_hit.t && intersect(ray, vertices, indices, normals, uvs, best_hit, second)) {
+				found = true;
+			}
 		} else {
-			for (int i = node.start_idx; i < node.end_idx; i++) {
+			for (int i = node.start; i < node.end; i++) {
 				const TriangleIndices& tri = indices[i];
 
 				const Vector& A = tri.A;
@@ -133,5 +166,5 @@ public:
 		return found;	
 	}
 
-	std::vector<BVHNode> bvhnodes;
+	std::vector<BVHNode> bvh_nodes;
 };

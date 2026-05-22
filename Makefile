@@ -1,7 +1,7 @@
 .PHONY: all clean
 
 CXX = g++
-CXXFLAGS = -O3 -flto -march=native -std=c++23 -fopenmp -Wall -MMD -MP
+CXXFLAGS = -O3 -flto=auto -march=native -std=c++23 -fopenmp -Wall -MMD -MP
 
 TARGET = build/main
 SRCS = main.cpp stb/stb.cpp
