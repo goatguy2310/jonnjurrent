@@ -21,13 +21,13 @@ fn main() {
         .max_light_bounce(8)
         .build();
 
-    let white = scene.add_material(Material::new_lambertian([0.8, 0.8, 0.8]));
-    let black = scene.add_material(Material::new_lambertian([0., 0., 0.]));
+    let white = scene.add_material(Material::lambertian([0.8, 0.8, 0.8]));
+    let black = scene.add_material(Material::lambertian([0., 0., 0.]));
 
     let rust = TriangleMeshBuilder::new()
-        .read_obj_file("assets/rust-logo.obj")
+        .read_obj_file(&mut scene, "assets/rust-logo.obj")
         .scale_translate(0.4, [0., 0., 0.])
-        .material(white)
+        .fallback_material(white)
         .build::<BVHConf>();
 
     let background = SphereBuilder::new()

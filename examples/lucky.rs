@@ -21,18 +21,18 @@ fn main() {
         .max_light_bounce(8)
         .build();
 
-    let white = scene.add_material(Material::new_lambertian([0.8, 0.8, 0.8]));
-    let color2 = scene.add_material(Material::new_lambertian([0.5, 0.8, 0.1]));
-    let color3 = scene.add_material(Material::new_lambertian([0.9, 0.2, 0.3]));
-    let color4 = scene.add_material(Material::new_lambertian([0.1, 0.6, 0.7]));
-    let color5 = scene.add_material(Material::new_lambertian([0.8, 0.2, 0.9]));
-    let color6 = scene.add_material(Material::new_lambertian([0.3, 0.5, 0.3]));
-    let color7 = scene.add_material(Material::new_lambertian([0.6, 0.5, 0.7]));
+    let white = scene.add_material(Material::lambertian([0.8, 0.8, 0.8]));
+    let color2 = scene.add_material(Material::lambertian([0.5, 0.8, 0.1]));
+    let color3 = scene.add_material(Material::lambertian([0.9, 0.2, 0.3]));
+    let color4 = scene.add_material(Material::lambertian([0.1, 0.6, 0.7]));
+    let color5 = scene.add_material(Material::lambertian([0.8, 0.2, 0.9]));
+    let color6 = scene.add_material(Material::lambertian([0.3, 0.5, 0.3]));
+    let color7 = scene.add_material(Material::lambertian([0.6, 0.5, 0.7]));
 
     let mister_lucky = TriangleMeshBuilder::new()
-        .read_obj_file("assets/lucky.obj")
+        .read_obj_file(&mut scene, "assets/lucky.obj")
         .scale_translate(0.1, [0., 20., 0.])
-        .material(white)
+        .fallback_material(white)
         .build::<BVHConf>();
 
     let wall_left = SphereBuilder::new()

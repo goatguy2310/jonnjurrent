@@ -1,3 +1,5 @@
+use std::f64::consts::PI;
+
 use crate::{
     material::MaterialIndex,
     object::{ComputeIntersection, Intersection, Object, Sampling},
@@ -11,6 +13,17 @@ pub struct Sphere {
     radius: f64,
 
     material_index: MaterialIndex,
+}
+
+impl Sphere {
+    #[inline]
+    #[must_use]
+    fn get_uv(point: &Vector) -> (f64, f64) {
+        let theta = (-point.y).acos();
+        let phi = -point.z.atan2(point.x) + PI;
+
+        (phi / (2. * PI), theta / PI)
+    }
 }
 
 impl ComputeIntersection for Sphere {
@@ -41,10 +54,13 @@ impl ComputeIntersection for Sphere {
         let intersection_to_center = &intersection_point - current_center;
         let unit_normal = intersection_to_center.clone() / intersection_to_center.norm();
 
+        let uv = Sphere::get_uv(&unit_normal);
+
         Some(Intersection::new(
             intersection_point,
             t,
             unit_normal,
+            uv,
             self.material_index,
         ))
     }

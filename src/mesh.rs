@@ -1,31 +1,41 @@
-use std::mem::take;
+use core::f64;
+use std::{collections::HashMap, mem::take};
 
 use crate::{
+    Material,
     bvh::{BVHConfig, BvhTree},
     material::MaterialIndex,
     object::{ComputeIntersection, Intersection, Object},
     ray::Ray,
+    scene::Scene,
+    texture::Texture,
     vector::Vector,
 };
+
+const EPS: f64 = 1e-9;
 
 #[derive(Debug, Default, Clone)]
 pub struct TriangleSoup {
     pub vtx: [Vector; 3],
     normal: [Vector; 3],
-    uv: [Vector; 3],
-    // #[allow(unused)]
-    // material_index: MaterialIndex,
+    uv: [(f64, f64); 3],
+    material_index: MaterialIndex,
 }
 
 impl TriangleSoup {
     #[inline(always)]
     #[must_use]
-    pub const fn new(vtx: [Vector; 3], normal: [Vector; 3], uv: [Vector; 3]) -> Self {
+    pub const fn new(
+        vtx: [Vector; 3],
+        normal: [Vector; 3],
+        uv: [(f64, f64); 3],
+        material_index: MaterialIndex,
+    ) -> Self {
         TriangleSoup {
             vtx,
             normal,
             uv,
-            // material_index: MaterialIndex(0),
+            material_index,
         }
     }
 
@@ -46,8 +56,6 @@ impl TriangleSoup {
 #[derive(Debug)]
 pub struct TriangleMesh {
     triangles: Vec<TriangleSoup>,
-
-    material_index: MaterialIndex,
     bvh: BvhTree,
 }
 
@@ -55,8 +63,6 @@ impl ComputeIntersection for TriangleMesh {
     type Index = MaterialIndex;
 
     fn intersect(&self, ray: &Ray) -> Option<Intersection<Self::Index>> {
-        const EPS: f64 = 1e-9;
-
         let candidates = self.bvh.intersect_ray(ray, f64::EPSILON, f64::INFINITY);
 
         let hit = candidates
@@ -112,17 +118,24 @@ impl ComputeIntersection for TriangleMesh {
 
         let normal = (normal_a * alpha + normal_b * beta + normal_c * gamma).normalize();
 
+        let tri_uv = &self.triangles[index].uv;
+        let uv_a = &tri_uv[0];
+        let uv_b = &tri_uv[1];
+        let uv_c = &tri_uv[2];
+
+        let u = uv_a.0 * alpha + uv_b.0 * beta + uv_c.0 * gamma;
+        let v = uv_a.1 * alpha + uv_b.1 * beta + uv_c.1 * gamma;
+
         Some(Intersection::new(
             intersection,
             t,
             normal,
-            self.material_index,
+            (u, v),
+            self.triangles[index].material_index,
         ))
     }
 
     fn shadow_intersect(&self, ray: &Ray) -> Option<f64> {
-        const EPS: f64 = 1e-9;
-
         let candidates = self.bvh.intersect_ray(ray, f64::EPSILON, f64::INFINITY);
 
         candidates
@@ -186,7 +199,6 @@ impl TriangleMeshBuilder {
     pub fn build<C: BVHConfig>(self) -> Object {
         let mut mesh = TriangleMesh {
             triangles: self.triangles,
-            material_index: self.material_index,
             bvh: BvhTree::new(),
         };
         mesh.bvh = BvhTree::build::<C>(&mesh.triangles);
@@ -194,7 +206,7 @@ impl TriangleMeshBuilder {
         Object::TriangleMesh(mesh)
     }
 
-    pub fn material(mut self, index: MaterialIndex) -> Self {
+    pub fn fallback_material(mut self, index: MaterialIndex) -> Self {
         self.material_index = index;
         self
     }
@@ -208,12 +220,49 @@ impl TriangleMeshBuilder {
         self
     }
 
-    pub fn read_obj_file(mut self, obj: impl AsRef<std::path::Path> + std::fmt::Debug) -> Self {
-        let (models, _materials) =
-            tobj::load_obj(obj, &tobj::GPU_LOAD_OPTIONS).expect("Failed to load OBJ file");
+    pub fn read_obj_file(
+        mut self,
+        scene: &mut Scene,
+        obj: impl AsRef<std::path::Path> + std::fmt::Debug,
+    ) -> Self {
+        let (models, materials) =
+            tobj::load_obj(&obj, &tobj::GPU_LOAD_OPTIONS).expect("Failed to load OBJ file");
+
+        let default_material_index = self.material_index;
+
+        let mut material_map = HashMap::<usize, MaterialIndex>::new();
+
+        for (idx, material) in materials.iter().flatten().enumerate() {
+            if let Some(diffuse_texture_path) = &material.diffuse_texture {
+                let texture_path = obj
+                    .as_ref()
+                    .parent()
+                    .unwrap_or(std::path::Path::new(""))
+                    .join(diffuse_texture_path);
+
+                let image_texture = Texture::image_from_path(texture_path);
+                let diffuse_material = Material::lambertian_with_texture(image_texture);
+
+                let material_index = scene.add_material(diffuse_material);
+                material_map.insert(idx, material_index);
+                continue;
+            }
+
+            if let Some(diffuse) = material.diffuse {
+                let material_index = scene.add_material(Material::lambertian(Vector::new(
+                    diffuse[0], diffuse[1], diffuse[2],
+                )));
+
+                material_map.insert(idx, material_index);
+                continue;
+            }
+
+            material_map.insert(idx, default_material_index);
+        }
 
         for model in models {
             let mesh = &model.mesh;
+            mesh.material_id;
 
             let vertices = mesh
                 .positions
@@ -230,10 +279,10 @@ impl TriangleMeshBuilder {
                 Vec::new()
             };
 
-            let uvs: Vec<Vector> = mesh
+            let uvs: Vec<(f64, f64)> = mesh
                 .texcoords
                 .chunks_exact(2)
-                .map(|c| Vector::new(c[0], c[1], 0.0))
+                .map(|c| (c[0], c[1]))
                 .collect();
 
             for chunk in mesh.indices.chunks_exact(3) {
@@ -264,9 +313,19 @@ impl TriangleMeshBuilder {
                     [n.clone(), n.clone(), n]
                 };
 
-                let uv = take_index(&uvs);
+                let uv = if !uvs.is_empty() {
+                    [uvs[idx0].clone(), uvs[idx1].clone(), uvs[idx2].clone()]
+                } else {
+                    [(0., 0.); 3]
+                };
 
-                self.triangles.push(TriangleSoup::new(vtx, normal, uv));
+                let material_index = mesh
+                    .material_id
+                    .and_then(|idx| material_map.get(&idx).copied())
+                    .unwrap_or(default_material_index);
+
+                self.triangles
+                    .push(TriangleSoup::new(vtx, normal, uv, material_index));
             }
         }
 

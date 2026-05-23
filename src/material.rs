@@ -1,10 +1,11 @@
-use crate::{object::Intersection, ray::Ray, vector::Vector};
+use crate::{object::Intersection, ray::Ray, texture::Texture, vector::Vector};
 
 const EPS: f64 = 1e-4;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct MaterialIndex(pub usize);
 
+#[allow(unused)]
 pub trait MaterialLike {
     fn emit(&self) -> Vector;
     fn scatter(&self, ray: &Ray, intersect: &Intersection<MaterialIndex>) -> Ray;
@@ -12,7 +13,7 @@ pub trait MaterialLike {
 
 #[derive(Debug)]
 pub enum Material {
-    Lambertian(Vector),
+    Lambertian(Texture),
     Metallic(f64),
     Dielectric(f64),
     Light(Vector),
@@ -21,19 +22,33 @@ pub enum Material {
 impl Material {
     #[inline]
     #[must_use]
-    pub fn new_lambertian(color: impl Into<Vector>) -> Self {
-        Material::Lambertian(color.into())
+    pub fn lambertian(color: impl Into<Vector>) -> Self {
+        let texture = Texture::solid_color(color.into());
+        Material::Lambertian(texture)
     }
 
     #[inline]
     #[must_use]
-    pub const fn new_mirror(fuzz: f64) -> Self {
+    pub const fn lambertian_with_texture(texture: Texture) -> Self {
+        Material::Lambertian(texture)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn lambertian_from_path(path: impl AsRef<std::path::Path> + std::fmt::Debug) -> Self {
+        let texture = Texture::image_from_path(path);
+        Material::lambertian_with_texture(texture)
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn mirror(fuzz: f64) -> Self {
         Material::Metallic(fuzz.clamp(0., 1.))
     }
 
     #[inline]
     #[must_use]
-    pub const fn new_transparent(refraction_index: f64) -> Self {
+    pub const fn transparent(refraction_index: f64) -> Self {
         Material::Dielectric(refraction_index)
     }
 }
@@ -90,7 +105,7 @@ impl MaterialLike for Material {
                 }
             }
 
-            _ => panic!(),
+            _ => unreachable!(),
         }
     }
 }

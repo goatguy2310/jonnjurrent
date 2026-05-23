@@ -15,6 +15,7 @@ pub use quad::QuadBuilder;
 pub use sphere::SphereBuilder;
 
 pub use material::Material;
+pub use texture::Texture;
 
 pub use bvh::BVHConfig;
 

@@ -1,0 +1,22 @@
+newmtl mat0
+
+# Diffuse/albedo color fallback
+Kd 1.0 1.0 1.0
+
+# Ambient
+Ka 0.0 0.0 0.0
+
+# Specular
+Ks 0.0 0.0 0.0
+
+# Specular exponent
+Ns 1.0
+
+# Opacity
+d 1.0
+
+# Illumination model
+illum 2
+
+# Diffuse texture
+map_Kd texture_diffuse.png

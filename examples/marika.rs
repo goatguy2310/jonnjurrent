@@ -21,13 +21,11 @@ fn main() {
         .max_light_bounce(8)
         .build();
 
-    let white = scene.add_material(Material::new_lambertian([0.8, 0.8, 0.8]));
-    let transparent = scene.add_material(Material::new_transparent(1.5));
+    let white = scene.add_material(Material::lambertian([0.8, 0.8, 0.8]));
 
     let queen_marika = TriangleMeshBuilder::new()
-        .read_obj_file("assets/marika/base.obj")
+        .read_obj_file(&mut scene, "assets/marika/base.obj")
         .scale_translate(25., [0., 0., 0.])
-        .material(transparent)
         .build::<BVHConf>();
 
     let background = SphereBuilder::new()

@@ -1,8 +1,9 @@
 use core::f64;
 
 use crate::material::{Material, MaterialIndex, MaterialLike};
-use crate::object::{ComputeIntersection, Intersection, Object, Sampling};
+use crate::object::{ComputeIntersection, Intersection, Object};
 use crate::ray::Ray;
+use crate::texture::TextureLike;
 use crate::vector::Vector;
 
 const EPS: f64 = 1e-4;
@@ -33,7 +34,7 @@ impl Scene {
     pub fn add_light(&mut self, object: Object) {
         let object_index = self.objects.len();
 
-        self.objects.push(object);
+        self.add_object(object);
         self.lights.push(object_index);
     }
 
@@ -48,7 +49,7 @@ impl Scene {
     #[inline]
     #[must_use]
     pub fn add_lambertian(&mut self, color: impl Into<Vector>) -> MaterialIndex {
-        self.add_material(Material::Lambertian(color.into()))
+        self.add_material(Material::lambertian(color))
     }
 
     #[inline]
@@ -124,7 +125,9 @@ impl Scene {
                 }
             }
 
-            Material::Lambertian(albedo) => {
+            Material::Lambertian(texture) => {
+                let albedo = texture.value(intersection.u, intersection.v);
+
                 let light_dir = &self.light_position - &intersection.intersection;
                 let distance_to_light = light_dir.norm();
                 let omega_i = light_dir / distance_to_light;
@@ -141,7 +144,7 @@ impl Scene {
                 let distance_squared = distance_to_light.powi(2);
                 let intensity_falloff =
                     self.light_intensity / (4.0 * f64::consts::PI * distance_squared);
-                let albedo_factor = albedo * f64::consts::PI.recip();
+                let albedo_factor = &albedo * f64::consts::PI.recip();
 
                 let mut direct_light = visibility * intensity_falloff * albedo_factor * cos_term;
 
@@ -228,7 +231,7 @@ impl SceneBuilder {
     }
 
     pub fn build(self) -> Scene {
-        Scene {
+        let mut scene = Scene {
             objects: Vec::new(),
             lights: Vec::new(),
             materials: Vec::new(),
@@ -238,7 +241,11 @@ impl SceneBuilder {
             gamma: self.gamma,
             light_intensity: self.light_intensity,
             max_light_bounce: self.max_light_bounce,
-        }
+        };
+
+        let _ = scene.add_material(Material::lambertian([0.8, 0.8, 0.8]));
+
+        scene
     }
 
     pub fn camera_center(mut self, x: f64, y: f64, z: f64) -> Self {

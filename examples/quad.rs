@@ -3,7 +3,7 @@ use core::f64::consts::PI;
 use renderer::{BVHConfig, RenderConfig, SceneConfig, render_config, scene_config};
 use renderer::{ImageRenderer, Material, QuadBuilder, SceneBuilder, TriangleMeshBuilder};
 
-render_config!(RConf, width: 512, height: 512, samples: 100);
+render_config!(RConf, width: 512, height: 512, samples: 30);
 scene_config!(SConf);
 
 struct BVHConf;
@@ -21,15 +21,14 @@ fn main() {
         .max_light_bounce(5)
         .build();
 
-    let white = scene.add_material(Material::new_lambertian([0.8, 0.8, 0.8]));
-    let green = scene.add_material(Material::new_lambertian([0.12, 0.45, 0.15]));
-    let red = scene.add_material(Material::new_lambertian([0.65, 0.05, 0.05]));
-    let transparent = scene.add_material(Material::new_transparent(1.5));
+    let white = scene.add_material(Material::lambertian([0.8, 0.8, 0.8]));
+    let green = scene.add_material(Material::lambertian([0.12, 0.45, 0.15]));
+    let red = scene.add_material(Material::lambertian([0.65, 0.05, 0.05]));
+    // let transparent = scene.add_material(Material::transparent(1.5));
 
     let queen_marika = TriangleMeshBuilder::new()
-        .read_obj_file("assets/marika/base.obj")
-        .scale_translate(30., [0., -10., -30.])
-        .material(transparent)
+        .read_obj_file(&mut scene, "assets/marika/base.obj")
+        .scale_translate(30., [0., -13., -40.])
         .build::<BVHConf>();
 
     scene.add_object(queen_marika);

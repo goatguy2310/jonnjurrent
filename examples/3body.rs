@@ -1,9 +1,9 @@
 use core::f64::consts::PI;
 
-use renderer::{ImageRenderer, Material, SceneBuilder, SphereBuilder};
+use renderer::{ImageRenderer, Material, SceneBuilder, SphereBuilder, Texture};
 use renderer::{RenderConfig, SceneConfig, render_config, scene_config};
 
-render_config!(RConf, width: 1024, height: 1024, samples: 1000);
+render_config!(RConf, width: 1024, height: 1024, samples: 10);
 scene_config!(SConf);
 
 fn main() {
@@ -16,20 +16,26 @@ fn main() {
         .max_light_bounce(8)
         .build();
 
-    let color1 = scene.add_material(Material::new_lambertian([0.8, 0.8, 0.8]));
-    let color2 = scene.add_material(Material::new_lambertian([0.5, 0.8, 0.1]));
-    let color3 = scene.add_material(Material::new_lambertian([0.9, 0.2, 0.3]));
-    let color4 = scene.add_material(Material::new_lambertian([0.1, 0.6, 0.7]));
-    let color5 = scene.add_material(Material::new_lambertian([0.8, 0.2, 0.9]));
-    let color6 = scene.add_material(Material::new_lambertian([0.3, 0.5, 0.3]));
-    let color7 = scene.add_material(Material::new_lambertian([0.6, 0.5, 0.7]));
-    let transp = scene.add_material(Material::new_transparent(1.5));
-    let mirror = scene.add_material(Material::new_mirror(0.001));
+    let earth_texture = Texture::image_from_path("assets/textures/8k_earth_daymap.jpg");
+    let sun_texture = Texture::image_from_path("assets/textures/8k_sun.jpg");
+    let checker = Texture::checker(1000., sun_texture.into(), earth_texture.into());
+
+    let earth = scene.add_material(Material::lambertian_with_texture(checker));
+
+    let color2 = scene.add_material(Material::lambertian([0.5, 0.8, 0.1]));
+    let color3 = scene.add_material(Material::lambertian([0.9, 0.2, 0.3]));
+    let color4 = scene.add_material(Material::lambertian([0.1, 0.6, 0.7]));
+    let color5 = scene.add_material(Material::lambertian([0.8, 0.2, 0.9]));
+    let color6 = scene.add_material(Material::lambertian([0.3, 0.5, 0.3]));
+    let color7 = scene.add_material(Material::lambertian([0.6, 0.5, 0.7]));
+
+    let transp = scene.add_material(Material::transparent(1.5));
+    let mirror = scene.add_material(Material::mirror(0.001));
 
     let center_sphere = SphereBuilder::new()
         .center(0., 0., 0.)
         .radius(10.)
-        .material(color1)
+        .material(earth)
         .build();
 
     let left_sphere = SphereBuilder::new()

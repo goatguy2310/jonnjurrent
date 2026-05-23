@@ -50,6 +50,7 @@ impl ComputeIntersection for Quad {
             intersection,
             t,
             n.normalize(),
+            (alpha, beta),
             self.material_index,
         ))
     }
