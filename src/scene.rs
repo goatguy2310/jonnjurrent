@@ -1,13 +1,16 @@
 use core::f64;
 
-use crate::material::{Material, MaterialIndex};
-use crate::object::{ComputeIntersection, Intersection, Object};
+use crate::material::{Material, MaterialIndex, MaterialLike};
+use crate::object::{ComputeIntersection, Intersection, Object, Sampling};
 use crate::ray::Ray;
 use crate::vector::Vector;
+
+const EPS: f64 = 1e-4;
 
 #[derive(Debug)]
 pub struct Scene {
     objects: Vec<Object>,
+    lights: Vec<usize>,
     materials: Vec<Material>,
 
     camera_center: Vector,
@@ -27,6 +30,14 @@ impl Scene {
     }
 
     #[inline]
+    pub fn add_light(&mut self, object: Object) {
+        let object_index = self.objects.len();
+
+        self.objects.push(object);
+        self.lights.push(object_index);
+    }
+
+    #[inline]
     #[must_use]
     pub fn add_material(&mut self, material: Material) -> MaterialIndex {
         let index = self.materials.len();
@@ -40,6 +51,8 @@ impl Scene {
         self.add_material(Material::Lambertian(color.into()))
     }
 
+    #[inline]
+    #[must_use]
     pub fn get_camera_center(&self) -> Vector {
         self.camera_center.clone()
     }
@@ -58,104 +71,83 @@ impl Scene {
 
     #[inline]
     #[must_use]
-    pub fn get_simple_color(&self, ray: &Ray) -> Vector {
-        match self.intersect(ray) {
-            Some(_) => Vector::ONE,
-            None => Vector::ZERO,
+    fn visibility(&self, distance: Option<f64>, distance_to_light: f64) -> f64 {
+        match distance {
+            Some(t) => f64::from(t > distance_to_light - EPS),
+            None => 1.,
         }
     }
 
-    pub fn get_color<CONFIG: SceneConfig>(&self, ray: &Ray, depth: u32) -> Vector {
-        const EPS: f64 = 1e-4;
+    // #[inline]
+    // #[must_use]
+    // pub fn sample_light(&self) -> Option<(Vector, Vector, Vector)> {
+    //     if self.lights.is_empty() {
+    //         return None;
+    //     }
+    //
+    //     let index = fastrand::usize(..self.lights.len());
+    //
+    //     let light_object = self.objects[self.lights[index]];
+    //     let (point, normal) = light_object.sample();
+    //
+    //     let emission = match &self.materials[light_object.material_index] {
+    //         Material::Light(e) => e.clone(),
+    //         _ => return None,
+    //     };
+    //
+    //     Some((point, normal, emission))
+    // }
 
+    pub fn get_color<CONFIG: SceneConfig>(
+        &self,
+        ray: &Ray,
+        depth: u32,
+        last_bounce_diffuse: bool,
+    ) -> Vector {
         if depth >= self.max_light_bounce {
             return Vector::ZERO;
         }
 
-        match self.intersect(ray) {
-            Some(intersection) => {
-                let material = &self.materials[intersection.index.0];
+        let intersection = match self.intersect(ray) {
+            Some(intersect) => intersect,
+            None => return Vector::ZERO,
+        };
 
-                if material.is_transparent() {
-                    let mut n_1: f64 = 1.0;
-                    let mut n_2: f64 = 1.5;
-                    let mut cos_i = ray.direction.dot(&intersection.normal);
-                    let mut normal = intersection.normal.clone();
+        let material = &self.materials[intersection.index.0];
 
-                    if cos_i > 0. {
-                        normal = -normal;
-                        cos_i = -cos_i;
-                        core::mem::swap(&mut n_1, &mut n_2);
-                    }
-
-                    let eta = n_1 / n_2;
-                    let k = 1.0 - eta.powi(2) * (1.0 - cos_i.powi(2));
-
-                    let r0 = ((n_1 - n_2) / (n_1 + n_2)).powi(2);
-                    let schlick = r0 + (1.0 - r0) * (1.0 - cos_i.abs()).powi(5);
-
-                    if k < 0. || fastrand::f64() < schlick {
-                        let reflected_ray = Ray::with_time(
-                            &intersection.intersection + &normal * EPS,
-                            &ray.direction - 2. * ray.direction.dot(&normal) * &normal,
-                            ray.time,
-                        );
-                        return self.get_color::<CONFIG>(&reflected_ray, depth + 1);
-                    } else {
-                        let refracted_ray = Ray::with_time(
-                            &intersection.intersection - &normal * EPS,
-                            eta * (&ray.direction - cos_i * &normal) - k.sqrt() * &normal,
-                            ray.time,
-                        );
-                        return self.get_color::<CONFIG>(&refracted_ray, depth + 1);
-                    }
+        match material {
+            Material::Light(albedo) => {
+                if last_bounce_diffuse {
+                    Vector::ZERO
+                } else {
+                    albedo.clone()
                 }
+            }
 
-                let intersection_origin = &intersection.intersection + &intersection.normal * EPS;
-
-                if material.is_mirror() {
-                    let reflected_ray = Ray::with_time(
-                        intersection_origin,
-                        &ray.direction
-                            - 2. * ray.direction.dot(&intersection.normal) * &intersection.normal,
-                        ray.time,
-                    );
-
-                    return self.get_color::<CONFIG>(&reflected_ray, depth + 1);
-                }
-
-                let albedo = material.get_albedo();
-
+            Material::Lambertian(albedo) => {
                 let light_dir = &self.light_position - &intersection.intersection;
                 let distance_to_light = light_dir.norm();
                 let omega_i = light_dir / distance_to_light;
                 let cos_term = intersection.normal.dot(&omega_i).max(0.0);
 
+                let intersection_origin = &intersection.intersection + &intersection.normal * EPS;
+
                 let shadow_ray =
                     Ray::with_time(intersection_origin.clone(), omega_i.clone(), ray.time);
 
-                let visibility = match self.shadow_intersect(&shadow_ray) {
-                    None => 1.0,
-                    Some(t) => {
-                        if t > distance_to_light {
-                            1.0
-                        } else {
-                            0.0
-                        }
-                    }
-                };
+                let visibility =
+                    self.visibility(self.shadow_intersect(&shadow_ray), distance_to_light);
 
                 let distance_squared = distance_to_light.powi(2);
                 let intensity_falloff =
                     self.light_intensity / (4.0 * f64::consts::PI * distance_squared);
                 let albedo_factor = albedo * f64::consts::PI.recip();
 
-                let direct_light = intensity_falloff * albedo_factor * visibility * cos_term;
+                let mut direct_light = visibility * intensity_falloff * albedo_factor * cos_term;
 
                 if CONFIG::ENABLE_INDIRECT_LIGHTING {
-                    let mut rng = fastrand::Rng::new();
-                    let r1 = rng.f64();
-                    let r2 = rng.f64();
+                    let r1 = fastrand::f64();
+                    let r2 = fastrand::f64();
 
                     let x = f64::cos(2. * f64::consts::PI * r1) * f64::sqrt(1. - r2);
                     let y = f64::sin(2. * f64::consts::PI * r1) * f64::sqrt(1. - r2);
@@ -173,15 +165,18 @@ impl Scene {
                     let v = (x * t_1 + y * t_2 + z * &intersection.normal).normalize();
 
                     let random_ray = Ray::new(intersection_origin, v);
-                    let indirect_light = self.get_color::<CONFIG>(&random_ray, depth + 1) * albedo;
+                    let indirect_light =
+                        albedo * self.get_color::<CONFIG>(&random_ray, depth + 1, true);
 
-                    direct_light + indirect_light
-                } else {
-                    direct_light
+                    direct_light += indirect_light;
                 }
+
+                direct_light
             }
 
-            None => Vector::ZERO,
+            Material::Metallic(..) | Material::Dielectric(..) => {
+                self.get_color::<CONFIG>(&material.scatter(ray, &intersection), depth + 1, false)
+            }
         }
     }
 }
@@ -235,6 +230,7 @@ impl SceneBuilder {
     pub fn build(self) -> Scene {
         Scene {
             objects: Vec::new(),
+            lights: Vec::new(),
             materials: Vec::new(),
             camera_center: self.camera_center,
             light_position: self.light_position,

@@ -3,12 +3,12 @@ use core::f64::consts::PI;
 use renderer::{BVHConfig, RenderConfig, SceneConfig, render_config, scene_config};
 use renderer::{ImageRenderer, Material, SceneBuilder, SphereBuilder, TriangleMeshBuilder};
 
-render_config!(RConf, width: 512, height: 512, samples: 24);
+render_config!(RConf, width: 512, height: 512, samples: 30);
 scene_config!(SConf);
 
 struct BVHConf;
 impl BVHConfig for BVHConf {
-    const USE_SAH: bool = false;
+    const USE_SAH: bool = true;
 }
 
 fn main() {
@@ -18,7 +18,7 @@ fn main() {
         .light_intensity(1E7)
         .fov(60. * PI / 180.)
         .gamma(2.2)
-        .max_light_bounce(8)
+        .max_light_bounce(5)
         .build();
 
     let color1 = scene.add_material(Material::new_lambertian([0.8, 0.8, 0.8]));

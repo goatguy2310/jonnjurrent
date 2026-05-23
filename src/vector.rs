@@ -80,6 +80,28 @@ impl Vector {
 
     #[inline]
     #[must_use]
+    pub fn random(min: f64, max: f64) -> Self {
+        Self {
+            x: min + (max - min) * fastrand::f64(),
+            y: min + (max - min) * fastrand::f64(),
+            z: min + (max - min) * fastrand::f64(),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn random_unit() -> Self {
+        loop {
+            let p = Vector::random(-1.0, 1.0);
+            let p_length2 = p.norm2();
+            if f64::EPSILON < p_length2 && p_length2 < 1. {
+                return p.normalize();
+            }
+        }
+    }
+
+    #[inline]
+    #[must_use]
     pub const fn axis(&self) -> usize {
         if self.x > self.y && self.x > self.z {
             0
@@ -88,6 +110,12 @@ impl Vector {
         } else {
             2
         }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn reflect(&self, normal: &Vector) -> Vector {
+        self - 2. * self.dot(normal) * normal
     }
 }
 

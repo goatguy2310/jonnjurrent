@@ -1,6 +1,6 @@
-use crate::{
-    material::MaterialIndex, mesh::TriangleMesh, ray::Ray, sphere::Sphere, vector::Vector,
-};
+use crate::material::MaterialIndex;
+use crate::{mesh::TriangleMesh, quad::Quad, sphere::Sphere};
+use crate::{ray::Ray, vector::Vector};
 
 #[derive(Debug)]
 pub struct Intersection<T> {
@@ -28,9 +28,14 @@ pub trait ComputeIntersection {
     fn shadow_intersect(&self, ray: &Ray) -> Option<f64>;
 }
 
+pub trait Sampling {
+    fn sample(&self) -> (Vector, Vector);
+}
+
 #[derive(Debug)]
 pub enum Object {
     Sphere(Sphere),
+    Quad(Quad),
     TriangleMesh(TriangleMesh),
 }
 
@@ -42,6 +47,7 @@ impl ComputeIntersection for Object {
     fn intersect(&self, ray: &Ray) -> Option<Intersection<Self::Index>> {
         match self {
             Object::Sphere(sphere) => sphere.intersect(ray),
+            Object::Quad(quad) => quad.intersect(ray),
             Object::TriangleMesh(mesh) => mesh.intersect(ray),
         }
     }
@@ -49,7 +55,18 @@ impl ComputeIntersection for Object {
     fn shadow_intersect(&self, ray: &Ray) -> Option<f64> {
         match self {
             Object::Sphere(sphere) => sphere.shadow_intersect(ray),
+            Object::Quad(quad) => quad.shadow_intersect(ray),
             Object::TriangleMesh(mesh) => mesh.shadow_intersect(ray),
+        }
+    }
+}
+
+impl Sampling for Object {
+    fn sample(&self) -> (Vector, Vector) {
+        match self {
+            Object::Sphere(sphere) => sphere.sample(),
+            Object::Quad(quad) => quad.sample(),
+            Object::TriangleMesh(_) => todo!(),
         }
     }
 }

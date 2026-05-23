@@ -1,7 +1,8 @@
 use crate::{
     material::MaterialIndex,
-    object::{ComputeIntersection, Intersection, Object},
+    object::{ComputeIntersection, Intersection, Object, Sampling},
     ray::Ray,
+    vector::Vector,
 };
 
 #[derive(Debug)]
@@ -73,6 +74,16 @@ impl ComputeIntersection for Sphere {
     }
 }
 
+impl Sampling for Sphere {
+    fn sample(&self) -> (Vector, Vector) {
+        let dir = Vector::random_unit();
+        let center = self.center.origin.clone();
+        let point = &center + self.radius * &dir;
+
+        (point, dir)
+    }
+}
+
 #[derive(Debug)]
 pub struct SphereBuilder {
     center: Ray,
@@ -82,6 +93,8 @@ pub struct SphereBuilder {
 }
 
 impl SphereBuilder {
+    #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             center: Ray::default(),
@@ -90,7 +103,9 @@ impl SphereBuilder {
         }
     }
 
-    pub fn build(self) -> Object {
+    #[inline]
+    #[must_use]
+    pub const fn build(self) -> Object {
         Object::Sphere(Sphere {
             center: self.center,
             radius: self.radius,
@@ -98,33 +113,35 @@ impl SphereBuilder {
         })
     }
 
-    pub fn center(mut self, x: f64, y: f64, z: f64) -> Self {
+    #[inline]
+    #[must_use]
+    pub const fn center(mut self, x: f64, y: f64, z: f64) -> Self {
         self.center.origin.x = x;
         self.center.origin.y = y;
         self.center.origin.z = z;
         self
     }
 
-    pub fn radius(mut self, radius: f64) -> Self {
+    #[inline]
+    #[must_use]
+    pub const fn radius(mut self, radius: f64) -> Self {
         self.radius = radius;
         self
     }
 
-    pub fn final_position(mut self, x: f64, y: f64, z: f64) -> Self {
+    #[inline]
+    #[must_use]
+    pub const fn final_position(mut self, x: f64, y: f64, z: f64) -> Self {
         self.center.direction.x = x;
         self.center.direction.y = y;
         self.center.direction.z = z;
         self
     }
 
-    pub fn material(mut self, index: MaterialIndex) -> Self {
+    #[inline]
+    #[must_use]
+    pub const fn material(mut self, index: MaterialIndex) -> Self {
         self.material_index = index;
         self
-    }
-}
-
-impl Default for SphereBuilder {
-    fn default() -> Self {
-        Self::new()
     }
 }

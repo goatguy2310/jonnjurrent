@@ -51,20 +51,6 @@ pub struct TriangleMesh {
     bvh: BvhTree,
 }
 
-// impl TriangleMesh {
-//     fn rebuild_bvh(&mut self) {
-//         self.bvh = BvhTree::build(&self.triangles);
-//     }
-//
-//     pub fn scale_translate(&mut self, scale: f64, translate: &Vector) {
-//         self.triangles.iter_mut().for_each(|tri| {
-//             tri.on_each_vertex(&|vtx| vtx * scale + translate);
-//         });
-//
-//         self.rebuild_bvh();
-//     }
-// }
-
 impl ComputeIntersection for TriangleMesh {
     type Index = MaterialIndex;
 
@@ -150,16 +136,16 @@ impl ComputeIntersection for TriangleMesh {
                 let e_1 = vertex_b - vertex_a;
                 let e_2 = vertex_c - vertex_a;
 
-                let a_minus_o = vertex_a - &ray.origin;
-                let a_minus_o_cross_u = a_minus_o.cross(&ray.direction);
-
                 let n = e_1.cross(&e_2);
                 let denom = ray.direction.dot(&n);
-                let inv_denom = 1. / denom;
-
                 if denom.abs() <= EPS {
                     return None;
                 }
+
+                let inv_denom = 1. / denom;
+
+                let a_minus_o = vertex_a - &ray.origin;
+                let a_minus_o_cross_u = a_minus_o.cross(&ray.direction);
 
                 let beta = e_2.dot(&a_minus_o_cross_u) * inv_denom;
                 let gamma = -(e_1.dot(&a_minus_o_cross_u) * inv_denom);

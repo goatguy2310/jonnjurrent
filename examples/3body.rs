@@ -23,8 +23,8 @@ fn main() {
     let color5 = scene.add_material(Material::new_lambertian([0.8, 0.2, 0.9]));
     let color6 = scene.add_material(Material::new_lambertian([0.3, 0.5, 0.3]));
     let color7 = scene.add_material(Material::new_lambertian([0.6, 0.5, 0.7]));
-    let transp = scene.add_material(Material::new_transparent());
-    let mirror = scene.add_material(Material::new_mirror());
+    let transp = scene.add_material(Material::new_transparent(1.5));
+    let mirror = scene.add_material(Material::new_mirror(0.001));
 
     let center_sphere = SphereBuilder::new()
         .center(0., 0., 0.)

@@ -48,7 +48,7 @@ impl ImageRenderer {
                             pixel.normalize(),
                             rng.f64_inclusive(),
                         );
-                        color += scene.get_color::<SC>(&ray, 0);
+                        color += scene.get_color::<SC>(&ray, 0, false);
                     }
 
                     color /= RC::SAMPLE_PER_PIXEL as f64;

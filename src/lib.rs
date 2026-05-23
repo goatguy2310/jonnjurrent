@@ -2,13 +2,16 @@ mod bvh;
 mod material;
 mod mesh;
 mod object;
+mod quad;
 mod ray;
 mod renderer;
 mod scene;
 mod sphere;
+mod texture;
 mod vector;
 
 pub use mesh::TriangleMeshBuilder;
+pub use quad::QuadBuilder;
 pub use sphere::SphereBuilder;
 
 pub use material::Material;

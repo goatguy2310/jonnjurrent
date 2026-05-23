@@ -22,7 +22,7 @@ fn main() {
         .build();
 
     let white = scene.add_material(Material::new_lambertian([0.8, 0.8, 0.8]));
-    let transparent = scene.add_material(Material::new_transparent());
+    let transparent = scene.add_material(Material::new_transparent(1.5));
 
     let queen_marika = TriangleMeshBuilder::new()
         .read_obj_file("assets/marika/base.obj")
