@@ -3,13 +3,12 @@ use std::{collections::HashMap, mem::take};
 
 use crate::{
     Material,
-    bvh::{BVHConfig, BvhTree},
+    larp::{BVHConfig, BvhTree},
+    geometry::{ComputeIntersection, Intersection, Object},
     material::MaterialIndex,
-    object::{ComputeIntersection, Intersection, Object},
-    ray::Ray,
+    math::{Ray, Vector},
     scene::Scene,
     texture::Texture,
-    vector::Vector,
 };
 
 const EPS: f64 = 1e-9;

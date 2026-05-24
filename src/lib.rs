@@ -1,23 +1,20 @@
-mod bvh;
 mod material;
-mod mesh;
-mod object;
-mod quad;
-mod ray;
 mod renderer;
 mod scene;
-mod sphere;
 mod texture;
-mod vector;
 
-pub use mesh::TriangleMeshBuilder;
-pub use quad::QuadBuilder;
-pub use sphere::SphereBuilder;
+mod geometry;
+mod larp;
+mod math;
+
+pub use geometry::QuadBuilder;
+pub use geometry::SphereBuilder;
+pub use geometry::TriangleMeshBuilder;
 
 pub use material::Material;
 pub use texture::Texture;
 
-pub use bvh::BVHConfig;
+pub use larp::BVHConfig;
 
 pub use scene::SceneBuilder;
 pub use scene::SceneConfig;

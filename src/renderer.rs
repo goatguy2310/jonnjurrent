@@ -2,7 +2,11 @@ use core::f64;
 
 use rayon::prelude::*;
 
-use crate::{SceneConfig, ray::Ray, scene::Scene, vector::Vector};
+use crate::{
+    SceneConfig,
+    math::{Ray, Vector},
+    scene::Scene,
+};
 
 #[derive(Debug)]
 pub struct ImageRenderer {}

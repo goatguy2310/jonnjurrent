@@ -1,4 +1,4 @@
-use crate::vector::Vector;
+use crate::math::Vector;
 
 pub trait TextureLike {
     fn value(&self, u: f64, v: f64) -> Vector;

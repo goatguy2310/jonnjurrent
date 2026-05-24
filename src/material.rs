@@ -1,4 +1,8 @@
-use crate::{object::Intersection, ray::Ray, texture::Texture, vector::Vector};
+use crate::{
+    geometry::Intersection,
+    math::{Ray, Vector},
+    texture::Texture,
+};
 
 const EPS: f64 = 1e-4;
 

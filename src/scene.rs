@@ -1,10 +1,9 @@
 use core::f64;
 
+use crate::geometry::{ComputeIntersection, Intersection, Object};
 use crate::material::{Material, MaterialIndex, MaterialLike};
-use crate::object::{ComputeIntersection, Intersection, Object};
-use crate::ray::Ray;
+use crate::math::{Ray, Vector};
 use crate::texture::TextureLike;
-use crate::vector::Vector;
 
 const EPS: f64 = 1e-4;
 
