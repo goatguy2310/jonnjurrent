@@ -59,3 +59,110 @@ inline void evaluateSAH(const Bin global_bins[3][BINS_COUNT], const BoundingBox&
 		}
 	}
 }
+
+struct PartitionInfo {
+	int left_start;
+	int right_start;
+};
+
+inline int parallelPartition(std::vector<int>& index_map, std::vector<int>& temp_index_map, std::vector<uint8_t>& is_left, const std::vector<TriangleIndices>& indices, int start, int end, int best_axis, int best_split_index, double min_bound, double scale, int num_bins, int num_threads) {
+	int len = end - start;
+
+	// fallback to sequential partition for small arrays
+	if (num_threads <= 1 || len < 1024) {
+		int pivot = start;
+		for (int i = start; i < end; i++) {
+			double centroid = indices[index_map[i]].centroid[best_axis];
+			int bin_idx = std::clamp((int)((centroid - min_bound) * scale), 0, num_bins - 1);
+
+			if (bin_idx <= best_split_index) {
+				std::swap(index_map[i], index_map[pivot]);
+				pivot++;
+			}
+		}
+		return pivot;
+	}
+
+	std::vector<int> local_left_cnt(num_threads, 0);
+	int block_sz = len / num_threads;
+
+	// map: evaluate split condition and store in is_left
+	auto mapThread = [&](int thread_id, int start_t, int end_t) {
+		int count = 0;
+		for (int j = start_t; j < end_t; j++) {
+			double centroid = indices[index_map[j]].centroid[best_axis];
+			int bin_idx = std::clamp((int)((centroid - min_bound) * scale), 0, num_bins - 1);
+
+			bool left = (bin_idx <= best_split_index);
+			is_left[j] = left ? 1 : 0;
+			if (left) count++;
+		}
+		local_left_cnt[thread_id] = count;
+	};
+
+	std::vector<std::thread> workers(num_threads - 1);
+	int start_blk = start;
+	for (int i = 0; i < num_threads - 1; i++) {
+		int end_blk = start_blk + block_sz;
+		workers[i] = std::thread(mapThread, i, start_blk, end_blk);
+		start_blk = end_blk;
+	}
+	mapThread(num_threads - 1, start_blk, end);
+	for (auto& w : workers) w.join();
+
+	// scan: compute prefix sums to find global memory offsets
+	std::vector<PartitionInfo> pinfo(num_threads);
+	int total_left = 0;
+	for (int i = 0; i < num_threads; i++) {
+		pinfo[i].left_start = start + total_left;
+		total_left += local_left_cnt[i];
+	}
+	int global_pivot = start + total_left;
+
+	int current_right = global_pivot;
+	for (int i = 0; i < num_threads; i++) {
+		pinfo[i].right_start = current_right;
+		int chunk_size = (i != num_threads - 1) ? block_sz : (len - i * block_sz);
+		current_right += (chunk_size - local_left_cnt[i]);
+	}
+
+	// scatter: move elements to temporary buffer without data races
+	auto scatterThread = [&](int thread_id, int start_t, int end_t) {
+		int l_cursor = pinfo[thread_id].left_start;
+		int r_cursor = pinfo[thread_id].right_start;
+		for (int j = start_t; j < end_t; j++) {
+			if (is_left[j]) {
+				temp_index_map[l_cursor++] = index_map[j];
+			} else {
+				temp_index_map[r_cursor++] = index_map[j];
+			}
+		}
+	};
+
+	start_blk = start;
+	for (int i = 0; i < num_threads - 1; i++) {
+		int end_blk = start_blk + block_sz;
+		workers[i] = std::thread(scatterThread, i, start_blk, end_blk);
+		start_blk = end_blk;
+	}
+	scatterThread(num_threads - 1, start_blk, end);
+	for (auto& w : workers) w.join();
+
+	// copy temp buffer back to original array
+	auto copyThread = [&](int start_t, int end_t) {
+		for (int j = start_t; j < end_t; j++) {
+			index_map[j] = temp_index_map[j];
+		}
+	};
+
+	start_blk = start;
+	for (int i = 0; i < num_threads - 1; i++) {
+		int end_blk = start_blk + block_sz;
+		workers[i] = std::thread(copyThread, start_blk, end_blk);
+		start_blk = end_blk;
+	}
+	copyThread(start_blk, end);
+	for (auto& w : workers) w.join();
+
+	return global_pivot;
+}
