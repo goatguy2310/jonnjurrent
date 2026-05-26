@@ -1,15 +1,10 @@
 use core::f64::consts::PI;
 
-use renderer::{BVHConfig, RenderConfig, SceneConfig, render_config, scene_config};
 use renderer::{ImageRenderer, Material, QuadBuilder, SceneBuilder, TriangleMeshBuilder};
+use renderer::{RenderConfig, SceneConfig, render_config, scene_config};
 
 render_config!(RConf, width: 512, height: 512, samples: 30);
 scene_config!(SConf);
-
-struct BVHConf;
-impl BVHConfig for BVHConf {
-    const USE_SAH: bool = true;
-}
 
 fn main() {
     let mut scene = SceneBuilder::new()
@@ -29,7 +24,7 @@ fn main() {
     let queen_marika = TriangleMeshBuilder::new()
         .read_obj_file(&mut scene, "assets/marika/base.obj")
         .scale_translate(30., [0., -13., -40.])
-        .build::<BVHConf>();
+        .build();
 
     scene.add_object(queen_marika);
 

@@ -18,6 +18,3 @@ use sphere::Sphere;
 pub use mesh::TriangleMeshBuilder;
 pub use quad::QuadBuilder;
 pub use sphere::SphereBuilder;
-
-// TODO Remove ts
-pub use mesh::TriangleSoup;

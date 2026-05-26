@@ -1,15 +1,10 @@
 use core::f64::consts::PI;
 
-use renderer::{BVHConfig, RenderConfig, SceneConfig, render_config, scene_config};
 use renderer::{ImageRenderer, Material, SceneBuilder, SphereBuilder, TriangleMeshBuilder};
+use renderer::{RenderConfig, SceneConfig, render_config, scene_config};
 
 render_config!(RConf, width: 1024, height: 1024, samples: 100);
 scene_config!(SConf);
-
-struct BVHConf;
-impl BVHConfig for BVHConf {
-    const USE_SAH: bool = true;
-}
 
 fn main() {
     let mut scene = SceneBuilder::new()
@@ -28,7 +23,7 @@ fn main() {
         .read_obj_file(&mut scene, "assets/rust-logo.obj")
         .scale_translate(0.4, [0., 0., 0.])
         .fallback_material(white)
-        .build::<BVHConf>();
+        .build();
 
     let background = SphereBuilder::new()
         .center(0., 0., -1000.)

@@ -3,8 +3,8 @@ use std::{collections::HashMap, mem::take};
 
 use crate::{
     Material,
-    larp::{BVHConfig, BvhTree},
     geometry::{ComputeIntersection, Intersection, Object},
+    larp::Bvh,
     material::MaterialIndex,
     math::{Ray, Vector},
     scene::Scene,
@@ -38,10 +38,19 @@ impl TriangleSoup {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     #[must_use]
-    pub fn center(&self) -> Vector {
-        (&self.vtx[0] + &self.vtx[1] + &self.vtx[2]) * (1.0 / 3.0)
+    pub const fn with_default_material(
+        vtx: [Vector; 3],
+        normal: [Vector; 3],
+        uv: [(f64, f64); 3],
+    ) -> Self {
+        TriangleSoup {
+            vtx,
+            normal,
+            uv,
+            material_index: MaterialIndex(0),
+        }
     }
 
     #[inline]
@@ -52,10 +61,45 @@ impl TriangleSoup {
     }
 }
 
+impl crate::larp::Boundable for TriangleSoup {
+    fn bounding_box(&self) -> crate::larp::BoundingBox {
+        const PADDING: f64 = 1e-6;
+
+        let a = &self.vtx[0];
+        let b = &self.vtx[1];
+        let c = &self.vtx[2];
+
+        let min = a.infimum(b).infimum(c);
+        let max = a.supremum(b).supremum(c);
+
+        crate::larp::BoundingBox::new(min, max).extend(PADDING)
+    }
+}
+
 #[derive(Debug)]
 pub struct TriangleMesh {
     triangles: Vec<TriangleSoup>,
-    bvh: BvhTree,
+    bvh: Bvh,
+}
+
+impl TriangleMesh {
+    #[inline(always)]
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            triangles: Vec::new(),
+            bvh: Bvh::empty(),
+        }
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub const fn with_triangles(triangles: Vec<TriangleSoup>) -> Self {
+        Self {
+            triangles,
+            bvh: Bvh::empty(),
+        }
+    }
 }
 
 impl ComputeIntersection for TriangleMesh {
@@ -195,14 +239,18 @@ impl TriangleMeshBuilder {
         }
     }
 
-    pub fn build<C: BVHConfig>(self) -> Object {
+    pub fn build(self) -> Object {
         let mut mesh = TriangleMesh {
             triangles: self.triangles,
-            bvh: BvhTree::new(),
+            bvh: Bvh::empty(),
         };
-        mesh.bvh = BvhTree::build::<C>(&mesh.triangles);
+        mesh.bvh = Bvh::build(&mesh.triangles);
 
         Object::TriangleMesh(mesh)
+    }
+
+    pub fn build_soup(self) -> Vec<TriangleSoup> {
+        self.triangles
     }
 
     pub fn fallback_material(mut self, index: MaterialIndex) -> Self {
@@ -261,7 +309,6 @@ impl TriangleMeshBuilder {
 
         for model in models {
             let mesh = &model.mesh;
-            mesh.material_id;
 
             let vertices = mesh
                 .positions
@@ -313,7 +360,7 @@ impl TriangleMeshBuilder {
                 };
 
                 let uv = if !uvs.is_empty() {
-                    [uvs[idx0].clone(), uvs[idx1].clone(), uvs[idx2].clone()]
+                    [uvs[idx0], uvs[idx1], uvs[idx2]]
                 } else {
                     [(0., 0.); 3]
                 };
@@ -325,6 +372,76 @@ impl TriangleMeshBuilder {
 
                 self.triangles
                     .push(TriangleSoup::new(vtx, normal, uv, material_index));
+            }
+        }
+
+        self
+    }
+
+    pub fn soup_from_obj(mut self, obj: impl AsRef<std::path::Path> + std::fmt::Debug) -> Self {
+        let (models, _materials) =
+            tobj::load_obj(&obj, &tobj::GPU_LOAD_OPTIONS).expect("Failed to load OBJ file");
+
+        for model in models {
+            let mesh = &model.mesh;
+
+            let vertices = mesh
+                .positions
+                .chunks_exact(3)
+                .map(|c| Vector::new(c[0], c[1], c[2]))
+                .collect();
+
+            let normals: Vec<Vector> = if !mesh.normals.is_empty() {
+                mesh.normals
+                    .chunks_exact(3)
+                    .map(|c| Vector::new(c[0], c[1], c[2]))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+            let uvs: Vec<(f64, f64)> = mesh
+                .texcoords
+                .chunks_exact(2)
+                .map(|c| (c[0], c[1]))
+                .collect();
+
+            for chunk in mesh.indices.chunks_exact(3) {
+                let idx0 = chunk[0] as usize;
+                let idx1 = chunk[1] as usize;
+                let idx2 = chunk[2] as usize;
+
+                let take_index = |a: &Vec<Vector>| -> [Vector; 3] {
+                    if !a.is_empty() {
+                        [a[idx0].clone(), a[idx1].clone(), a[idx2].clone()]
+                    } else {
+                        [Vector::ZERO; 3]
+                    }
+                };
+
+                let vtx = take_index(&vertices);
+
+                let normal = if !normals.is_empty() {
+                    [
+                        normals[idx0].clone(),
+                        normals[idx1].clone(),
+                        normals[idx2].clone(),
+                    ]
+                } else {
+                    let e_1 = &vtx[1] - &vtx[0];
+                    let e_2 = &vtx[2] - &vtx[0];
+                    let n = e_1.cross(&e_2).normalize();
+                    [n.clone(), n.clone(), n]
+                };
+
+                let uv = if !uvs.is_empty() {
+                    [uvs[idx0], uvs[idx1], uvs[idx2]]
+                } else {
+                    [(0., 0.); 3]
+                };
+
+                self.triangles
+                    .push(TriangleSoup::with_default_material(vtx, normal, uv));
             }
         }
 

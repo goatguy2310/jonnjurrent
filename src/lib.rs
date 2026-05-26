@@ -3,9 +3,9 @@ mod renderer;
 mod scene;
 mod texture;
 
-mod geometry;
-mod larp;
-mod math;
+pub mod geometry;
+pub mod larp;
+pub mod math;
 
 pub use geometry::QuadBuilder;
 pub use geometry::SphereBuilder;
@@ -13,8 +13,6 @@ pub use geometry::TriangleMeshBuilder;
 
 pub use material::Material;
 pub use texture::Texture;
-
-pub use larp::BVHConfig;
 
 pub use scene::SceneBuilder;
 pub use scene::SceneConfig;

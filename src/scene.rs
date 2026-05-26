@@ -78,26 +78,6 @@ impl Scene {
         }
     }
 
-    // #[inline]
-    // #[must_use]
-    // pub fn sample_light(&self) -> Option<(Vector, Vector, Vector)> {
-    //     if self.lights.is_empty() {
-    //         return None;
-    //     }
-    //
-    //     let index = fastrand::usize(..self.lights.len());
-    //
-    //     let light_object = self.objects[self.lights[index]];
-    //     let (point, normal) = light_object.sample();
-    //
-    //     let emission = match &self.materials[light_object.material_index] {
-    //         Material::Light(e) => e.clone(),
-    //         _ => return None,
-    //     };
-    //
-    //     Some((point, normal, emission))
-    // }
-
     pub fn get_color<CONFIG: SceneConfig>(
         &self,
         ray: &Ray,
@@ -134,8 +114,7 @@ impl Scene {
 
                 let intersection_origin = &intersection.intersection + &intersection.normal * EPS;
 
-                let shadow_ray =
-                    Ray::with_time(intersection_origin.clone(), omega_i.clone(), ray.time);
+                let shadow_ray = Ray::new(intersection_origin.clone(), omega_i.clone());
 
                 let visibility =
                     self.visibility(self.shadow_intersect(&shadow_ray), distance_to_light);

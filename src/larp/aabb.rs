@@ -1,4 +1,8 @@
-use crate::math::{Ray, Vector};
+use crate::math::{Ray, Vector, VolumeSampleable};
+
+pub trait Boundable {
+    fn bounding_box(&self) -> BoundingBox;
+}
 
 #[derive(Debug, Clone)]
 pub struct BoundingBox {
@@ -7,6 +11,9 @@ pub struct BoundingBox {
 }
 
 impl BoundingBox {
+    pub const EMPTY: Self = Self::new(Vector::INFINITY, Vector::NEG_INFINITY);
+    pub const UNIVERSE: Self = Self::new(Vector::NEG_INFINITY, Vector::INFINITY);
+
     #[inline(always)]
     #[must_use]
     pub const fn new(min: Vector, max: Vector) -> Self {
@@ -15,8 +22,49 @@ impl BoundingBox {
 
     #[inline]
     #[must_use]
+    pub fn center(&self) -> Vector {
+        (&self.min + &self.max) * 0.5
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn surface_area(&self) -> f64 {
+        let (dx, dy, dz) = self.diagonal().into();
+        2.0 * (dx * dy + dy * dz + dz * dx)
+    }
+
+    #[inline]
+    #[must_use]
     pub fn diagonal(&self) -> Vector {
         &self.max - &self.min
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn extend(self, value: f64) -> Self {
+        let value_vector = Vector::splat(value);
+        Self::new(self.min - &value_vector, self.max + value_vector)
+    }
+
+    #[inline]
+    #[allow(unused)]
+    pub fn extend_mut(&mut self, value: f64) {
+        let value_vector = Vector::splat(value);
+        self.min -= &value_vector;
+        self.max += value_vector;
+    }
+
+    #[inline(always)]
+    #[must_use]
+    #[allow(unused)]
+    pub const fn union(&self, other: &Self) -> Self {
+        Self::new(self.min.infimum(&other.min), self.max.supremum(&other.max))
+    }
+
+    #[inline(always)]
+    pub const fn union_mut(&mut self, other: &Self) {
+        self.min = self.min.infimum(&other.min);
+        self.max = self.max.supremum(&other.max);
     }
 
     #[inline]
@@ -50,5 +98,15 @@ impl BoundingBox {
         }
 
         true
+    }
+}
+
+impl VolumeSampleable for BoundingBox {
+    fn volume_sample(&self) -> Vector {
+        Vector::new(
+            fastrand::f64() * (self.max.x - self.min.x) + self.min.x,
+            fastrand::f64() * (self.max.y - self.min.y) + self.min.y,
+            fastrand::f64() * (self.max.z - self.min.z) + self.min.z,
+        )
     }
 }

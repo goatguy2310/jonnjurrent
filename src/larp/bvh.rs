@@ -1,6 +1,5 @@
 use crate::{
-    geometry::TriangleSoup,
-    larp::BoundingBox,
+    larp::{Boundable, BoundingBox},
     math::{Ray, Vector},
 };
 
@@ -20,13 +19,6 @@ pub enum BvhNode {
 }
 
 impl BvhNode {
-    pub fn bbox(&self) -> &BoundingBox {
-        match self {
-            Self::Internal { bbox, .. } => bbox,
-            Self::Leaf { bbox, .. } => bbox,
-        }
-    }
-
     fn new_internal(bbox: BoundingBox, left: usize, right: usize) -> Self {
         Self::Internal {
             bbox,
@@ -44,92 +36,146 @@ impl BvhNode {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct BvhTree {
-    nodes: Vec<BvhNode>,
-    triangle_indices: Vec<usize>,
+impl Boundable for BvhNode {
+    fn bounding_box(&self) -> BoundingBox {
+        match self {
+            Self::Internal { bbox, .. } => bbox.clone(),
+            Self::Leaf { bbox, .. } => bbox.clone(),
+        }
+    }
 }
 
-impl BvhTree {
-    pub fn new() -> Self {
+#[derive(Debug, Clone)]
+struct CachedPrimitive {
+    bounding_box: BoundingBox,
+    center: Vector,
+}
+
+impl CachedPrimitive {
+    #[inline]
+    #[must_use]
+    fn with_primitive<T: Boundable>(primitive: &T) -> Self {
+        let bounding_box = primitive.bounding_box();
+        let center = bounding_box.center();
+
+        CachedPrimitive {
+            bounding_box,
+            center,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Bucket {
+    count: usize,
+    bbox: BoundingBox,
+}
+
+impl Bucket {
+    pub const COUNT: usize = 12;
+
+    #[inline]
+    #[must_use]
+    const fn new() -> Self {
+        Self {
+            count: 0,
+            bbox: BoundingBox::EMPTY,
+        }
+    }
+
+    #[inline]
+    const fn add(&mut self, bbox: &BoundingBox) {
+        self.count += 1;
+        self.bbox.union_mut(bbox);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Bvh {
+    nodes: Vec<BvhNode>,
+    primitive_indices: Vec<usize>,
+}
+
+impl Bvh {
+    #[inline(always)]
+    #[must_use]
+    pub const fn empty() -> Self {
         Self {
             nodes: Vec::new(),
-            triangle_indices: Vec::new(),
+            primitive_indices: Vec::new(),
         }
     }
 
-    pub fn build<C: BVHConfig>(mesh: &Vec<TriangleSoup>) -> Self {
-        let triangle_count = mesh.len();
-        let mut triangle_indices: Vec<usize> = (0..triangle_count).collect();
-        let mut nodes = Vec::with_capacity(2 * triangle_count);
+    pub fn build<T: Boundable>(primitives: &[T]) -> Self {
+        let primitive_count = primitives.len();
+        let mut nodes = Vec::with_capacity(2 * primitive_count);
+        let mut primitive_indices: Vec<usize> = (0..primitive_count).collect();
 
-        Self::build_recursive::<C>(mesh, &mut triangle_indices, 0, triangle_count, &mut nodes);
+        let cached_primitives = primitives
+            .iter()
+            .map(CachedPrimitive::with_primitive)
+            .collect::<Vec<CachedPrimitive>>();
 
-        BvhTree {
+        Self::build_recursive(
+            &cached_primitives,
+            &mut primitive_indices,
+            0,
+            primitive_count,
+            &mut nodes,
+        );
+
+        Bvh {
             nodes,
-            triangle_indices,
+            primitive_indices,
         }
     }
 
-    fn build_recursive<C: BVHConfig>(
-        mesh: &Vec<TriangleSoup>,
-        triangle_indices: &mut [usize],
+    fn build_recursive(
+        primitives: &[CachedPrimitive],
+        primitive_indices: &mut [usize],
         start: usize,
         end: usize,
         nodes: &mut Vec<BvhNode>,
     ) -> usize {
-        let bbox = Self::compute_bbox(mesh, &triangle_indices[start..end]);
+        let bbox = Self::compute_bbox(primitives, &primitive_indices[start..end]);
+        let node_index = nodes.len();
 
         if end - start <= 4 {
-            let node_index = nodes.len();
             nodes.push(BvhNode::new_leaf(bbox, start, end));
             return node_index;
         }
 
-        let node_index = nodes.len();
         nodes.push(BvhNode::Internal {
             bbox: bbox.clone(),
             left: 0,
             right: 0,
         });
 
-        let split_position = if C::USE_SAH {
-            Self::find_sah_split(mesh, triangle_indices, start, end, &bbox)
-        } else {
-            Self::find_split(mesh, triangle_indices, start, end, &bbox)
-        };
+        let split_position = Self::find_sah_split(primitives, primitive_indices, start, end, &bbox);
 
-        if split_position == start || split_position == end {
+        let Some(split_position) = split_position else {
             nodes[node_index] = BvhNode::new_leaf(bbox, start, end);
             return node_index;
-        }
+        };
 
-        let left = Self::build_recursive::<C>(mesh, triangle_indices, start, split_position, nodes);
-        let right = Self::build_recursive::<C>(mesh, triangle_indices, split_position, end, nodes);
+        let left =
+            Self::build_recursive(primitives, primitive_indices, start, split_position, nodes);
+        let right =
+            Self::build_recursive(primitives, primitive_indices, split_position, end, nodes);
 
         nodes[node_index] = BvhNode::new_internal(bbox, left, right);
 
         node_index
     }
 
-    fn compute_bbox(mesh: &[TriangleSoup], triangle_indices: &[usize]) -> BoundingBox {
-        let mut min = Vector::INFINITY;
-        let mut max = Vector::NEG_INFINITY;
-
-        for v in triangle_indices
-            .iter()
-            .flat_map(|&index| mesh[index].vtx.iter())
-        {
-            min.x = min.x.min(v.x);
-            min.y = min.y.min(v.y);
-            min.z = min.z.min(v.z);
-
-            max.x = max.x.max(v.x);
-            max.y = max.y.max(v.y);
-            max.z = max.z.max(v.z);
-        }
-
-        BoundingBox::new(min, max)
+    fn compute_bbox(primitives: &[CachedPrimitive], primitive_indices: &[usize]) -> BoundingBox {
+        primitive_indices.iter().fold(
+            BoundingBox::new(Vector::INFINITY, Vector::NEG_INFINITY),
+            |mut acc, &index| {
+                acc.union_mut(&primitives[index].bounding_box);
+                acc
+            },
+        )
     }
 
     pub fn intersect_ray(&self, ray: &Ray, t_min: f64, t_max: f64) -> Vec<usize> {
@@ -144,14 +190,14 @@ impl BvhTree {
         while let Some(node_index) = stack.pop() {
             let node = &self.nodes[node_index as usize];
 
-            if !node.bbox().is_intersecting(ray, t_min, t_max) {
+            if !node.bounding_box().is_intersecting(ray, t_min, t_max) {
                 continue;
             }
 
             match node {
                 BvhNode::Leaf { start, end, .. } => {
                     for i in *start..*end {
-                        hits.push(self.triangle_indices[i as usize]);
+                        hits.push(self.primitive_indices[i as usize]);
                     }
                 }
                 BvhNode::Internal { left, right, .. } => {
@@ -165,8 +211,8 @@ impl BvhTree {
     }
 
     fn find_split(
-        mesh: &[TriangleSoup],
-        triangle_indices: &mut [usize],
+        primitives: &[CachedPrimitive],
+        primitive_indices: &mut [usize],
         start: usize,
         end: usize,
         bbox: &BoundingBox,
@@ -179,13 +225,13 @@ impl BvhTree {
         let mut right = end - 1;
 
         while left < right {
-            let tri_idx = triangle_indices[left];
-            let center = mesh[tri_idx].center()[axis];
+            let pri_idx = primitive_indices[left];
+            let center = primitives[pri_idx].center[axis];
 
             if center < mid {
                 left += 1;
             } else {
-                triangle_indices.swap(left, right);
+                primitive_indices.swap(left, right);
                 right -= 1;
             }
         }
@@ -193,185 +239,162 @@ impl BvhTree {
         left.max(start + 1).min(end - 1)
     }
 
-    /// ChatGPT generated
     fn find_sah_split(
-        mesh: &[TriangleSoup],
-        triangle_indices: &mut [usize],
+        cached: &[CachedPrimitive],
+        primitive_indices: &mut [usize],
         start: usize,
         end: usize,
         bbox: &BoundingBox,
-    ) -> usize {
-        const BUCKET_COUNT: usize = 12;
-        let n = end - start;
-        if n <= 2 {
-            return start + n / 2;
+    ) -> Option<usize> {
+        const TRAVERSAL_COST: f64 = 1.0;
+        const INTERSECTION_COST: f64 = 1.0;
+        const EPS: f64 = 1e-12;
+
+        let primitive_count = end - start;
+
+        if primitive_count <= 2 {
+            return Some(start + primitive_count / 2);
         }
 
-        let diag = bbox.diagonal();
-        let axis = diag.axis();
+        let axis = bbox.diagonal().axis();
 
-        let mut centroids = Vec::with_capacity(n);
-        let mut cmin = f64::INFINITY;
-        let mut cmax = f64::NEG_INFINITY;
-        for &i in &triangle_indices[start..end] {
-            let c = mesh[i].center()[axis];
-            centroids.push((i, c));
-            cmin = cmin.min(c);
-            cmax = cmax.max(c);
+        let mut centroid_min = f64::INFINITY;
+        let mut centroid_max = f64::NEG_INFINITY;
+
+        for &primitive_index in &primitive_indices[start..end] {
+            let center = cached[primitive_index].center[axis];
+
+            centroid_min = centroid_min.min(center);
+            centroid_max = centroid_max.max(center);
         }
 
-        if (cmax - cmin).abs() < 1e-12 {
-            return start + n / 2;
+        let centroid_extent = centroid_max - centroid_min;
+
+        if centroid_extent.abs() < EPS {
+            return None;
         }
 
-        #[derive(Clone)]
-        struct Bucket {
-            count: usize,
-            bbox: Option<BoundingBox>,
-        }
-        let mut buckets = vec![
-            Bucket {
-                count: 0,
-                bbox: None
-            };
-            BUCKET_COUNT
-        ];
+        let mut buckets: [Bucket; Bucket::COUNT] = std::array::from_fn(|_| Bucket::new());
 
-        for (tri_idx, c) in &centroids {
-            let mut b = (((*c - cmin) / (cmax - cmin)) * (BUCKET_COUNT as f64)) as usize;
-            if b == BUCKET_COUNT {
-                b = BUCKET_COUNT - 1;
+        for &primitive_index in &primitive_indices[start..end] {
+            let center = cached[primitive_index].center[axis];
+
+            let mut bucket_index =
+                (((center - centroid_min) / centroid_extent) * Bucket::COUNT as f64) as usize;
+
+            if bucket_index >= Bucket::COUNT {
+                bucket_index = Bucket::COUNT - 1;
             }
 
-            let bucket = &mut buckets[b];
-            bucket.count += 1;
-            let tri_bbox = Self::compute_bbox(mesh, &[*tri_idx]);
-            bucket.bbox = match &bucket.bbox {
-                Some(existing) => Some(BoundingBox::new(
-                    Vector::new(
-                        existing.min.x.min(tri_bbox.min.x),
-                        existing.min.y.min(tri_bbox.min.y),
-                        existing.min.z.min(tri_bbox.min.z),
-                    ),
-                    Vector::new(
-                        existing.max.x.max(tri_bbox.max.x),
-                        existing.max.y.max(tri_bbox.max.y),
-                        existing.max.z.max(tri_bbox.max.z),
-                    ),
-                )),
-                None => Some(tri_bbox),
-            };
+            buckets[bucket_index].add(&cached[primitive_index].bounding_box);
         }
 
-        let mut left_count = [0usize; BUCKET_COUNT];
-        let mut left_bbox: Vec<Option<BoundingBox>> = vec![None; BUCKET_COUNT];
-        let mut count = 0usize;
-        let mut bbox_acc: Option<BoundingBox> = None;
-        for i in 0..BUCKET_COUNT {
-            count += buckets[i].count;
-            left_count[i] = count;
-            bbox_acc = match (&bbox_acc, &buckets[i].bbox) {
-                (None, None) => None,
-                (Some(b1), None) => Some(b1.clone()),
-                (None, Some(b2)) => Some(b2.clone()),
-                (Some(b1), Some(b2)) => Some(BoundingBox::new(
-                    Vector::new(
-                        b1.min.x.min(b2.min.x),
-                        b1.min.y.min(b2.min.y),
-                        b1.min.z.min(b2.min.z),
-                    ),
-                    Vector::new(
-                        b1.max.x.max(b2.max.x),
-                        b1.max.y.max(b2.max.y),
-                        b1.max.z.max(b2.max.z),
-                    ),
-                )),
-            };
-            left_bbox[i] = bbox_acc.clone();
+        let mut left_count = [0usize; Bucket::COUNT];
+
+        let mut left_bbox: [BoundingBox; Bucket::COUNT] =
+            std::array::from_fn(|_| BoundingBox::EMPTY);
+
+        let mut accumulated_count = 0usize;
+
+        let mut accumulated_bbox = BoundingBox::EMPTY;
+
+        for i in 0..Bucket::COUNT {
+            accumulated_count += buckets[i].count;
+
+            left_count[i] = accumulated_count;
+
+            accumulated_bbox.union_mut(&buckets[i].bbox);
+
+            left_bbox[i] = accumulated_bbox.clone();
         }
 
-        let mut right_count = [0usize; BUCKET_COUNT];
-        let mut right_bbox: Vec<Option<BoundingBox>> = vec![None; BUCKET_COUNT];
-        count = 0;
-        bbox_acc = None;
-        for i in (0..BUCKET_COUNT).rev() {
-            count += buckets[i].count;
-            right_count[i] = count;
-            bbox_acc = match (&bbox_acc, &buckets[i].bbox) {
-                (None, None) => None,
-                (Some(b1), None) => Some(b1.clone()),
-                (None, Some(b2)) => Some(b2.clone()),
-                (Some(b1), Some(b2)) => Some(BoundingBox::new(
-                    Vector::new(
-                        b1.min.x.min(b2.min.x),
-                        b1.min.y.min(b2.min.y),
-                        b1.min.z.min(b2.min.z),
-                    ),
-                    Vector::new(
-                        b1.max.x.max(b2.max.x),
-                        b1.max.y.max(b2.max.y),
-                        b1.max.z.max(b2.max.z),
-                    ),
-                )),
-            };
-            right_bbox[i] = bbox_acc.clone();
+        let mut right_count = [0usize; Bucket::COUNT];
+
+        let mut right_bbox: [BoundingBox; Bucket::COUNT] =
+            std::array::from_fn(|_| BoundingBox::new(Vector::INFINITY, Vector::NEG_INFINITY));
+
+        accumulated_count = 0;
+
+        accumulated_bbox = BoundingBox::new(Vector::INFINITY, Vector::NEG_INFINITY);
+
+        for i in (0..Bucket::COUNT).rev() {
+            accumulated_count += buckets[i].count;
+
+            right_count[i] = accumulated_count;
+
+            accumulated_bbox.union_mut(&buckets[i].bbox);
+
+            right_bbox[i] = accumulated_bbox.clone();
         }
 
-        let surface_area = |b: &BoundingBox| {
-            let d = &b.max - &b.min;
-            2.0 * (d.x * d.y + d.y * d.z + d.z * d.x)
-        };
+        let total_area = bbox.surface_area();
+
+        if total_area <= EPS {
+            return None;
+        }
+
+        let leaf_cost = INTERSECTION_COST * primitive_count as f64;
 
         let mut best_cost = f64::INFINITY;
-        let mut best_bucket_split = 0usize;
-        let total_area = surface_area(bbox);
-        for i in 0..BUCKET_COUNT - 1 {
-            let left_n = left_count[i] as f64;
-            let right_n = right_count[i + 1] as f64;
-            if left_n == 0.0 || right_n == 0.0 {
+        let mut best_bucket = None;
+
+        for i in 0..Bucket::COUNT - 1 {
+            let left_primitive_count = left_count[i];
+            let right_primitive_count = right_count[i + 1];
+
+            if left_primitive_count == 0 || right_primitive_count == 0 {
                 continue;
             }
-            let left_area = left_bbox[i].as_ref().map(&surface_area).unwrap_or(0.0);
-            let right_area = right_bbox[i + 1].as_ref().map(&surface_area).unwrap_or(0.0);
 
-            // cost = traversal_cost + intersection_cost * ( (left_area/total_area)*left_n + (right_area/total_area)*right_n )
-            // use constants (t_trav = 1.0, t_isect = 1.0)
-            let cost =
-                1.0 + (left_area / total_area) * left_n + (right_area / total_area) * right_n;
+            let left_area = left_bbox[i].surface_area();
+            let right_area = right_bbox[i + 1].surface_area();
+
+            let cost = TRAVERSAL_COST
+                + INTERSECTION_COST
+                    * ((left_area / total_area) * left_primitive_count as f64
+                        + (right_area / total_area) * right_primitive_count as f64);
+
             if cost < best_cost {
                 best_cost = cost;
-                best_bucket_split = i;
+                best_bucket = Some(i);
             }
         }
 
-        // If no beneficial split found, fallback to median-by-count
-        if best_cost.is_infinite() {
-            return start + n / 2;
+        if best_bucket.is_none() || best_cost >= leaf_cost {
+            return None;
         }
 
-        // Partition triangle_indices by bucket split (stable partitioning by recomputing bucket)
-        let split_centroid =
-            cmin + (cmax - cmin) * ((best_bucket_split as f64 + 1.0) / BUCKET_COUNT as f64);
-        let mut l = start;
-        let mut r = end - 1;
-        while l <= r {
-            let tri_idx = triangle_indices[l];
-            let c = mesh[tri_idx].center()[axis];
-            if c <= split_centroid {
-                l += 1;
+        let split_plane = centroid_min
+            + centroid_extent * ((best_bucket.unwrap() + 1) as f64 / Bucket::COUNT as f64);
+
+        let mut left = start;
+        let mut right = end - 1;
+
+        while left < right {
+            let primitive_index = primitive_indices[left];
+
+            let center = cached[primitive_index].center[axis];
+
+            if center <= split_plane {
+                left += 1;
             } else {
-                triangle_indices.swap(l, r);
-                if r == 0 {
-                    break;
-                } // safety
-                r -= 1;
+                primitive_indices.swap(left, right);
+                right -= 1;
             }
         }
 
-        l.max(start + 1).min(end - 1)
+        let split = left.max(start + 1).min(end - 1);
+
+        if split == start || split == end {
+            None
+        } else {
+            Some(split)
+        }
     }
 }
 
-pub trait BVHConfig {
-    const USE_SAH: bool;
+impl Boundable for Bvh {
+    fn bounding_box(&self) -> BoundingBox {
+        self.nodes[0].bounding_box()
+    }
 }

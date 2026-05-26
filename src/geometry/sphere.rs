@@ -8,7 +8,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Sphere {
-    center: Ray,
+    center: Vector,
     radius: f64,
 
     material_index: MaterialIndex,
@@ -29,8 +29,8 @@ impl ComputeIntersection for Sphere {
     type Index = MaterialIndex;
 
     fn intersect(&self, ray: &Ray) -> Option<Intersection<Self::Index>> {
-        let current_center = self.center.at(ray.time);
-        let origin_center = &ray.origin - &current_center;
+        let current_center = &self.center;
+        let origin_center = &ray.origin - current_center;
         let u_dot_origin_center = ray.direction.dot(&origin_center);
 
         let delta = u_dot_origin_center.powi(2) - (origin_center.norm2() - self.radius.powi(2));
@@ -65,8 +65,8 @@ impl ComputeIntersection for Sphere {
     }
 
     fn shadow_intersect(&self, ray: &Ray) -> Option<f64> {
-        let current_center = self.center.at(ray.time);
-        let origin_center = &ray.origin - &current_center;
+        let current_center = &self.center;
+        let origin_center = &ray.origin - current_center;
         let u_dot_origin_center = ray.direction.dot(&origin_center);
 
         let delta = u_dot_origin_center.powi(2) - (origin_center.norm2() - self.radius.powi(2));
@@ -92,16 +92,24 @@ impl ComputeIntersection for Sphere {
 impl Sampleable for Sphere {
     fn sample(&self) -> (Vector, Vector) {
         let dir = Vector::random_unit();
-        let center = self.center.origin.clone();
-        let point = &center + self.radius * &dir;
+        let point = &self.center + self.radius * &dir;
 
         (point, dir)
     }
 }
 
+impl crate::larp::Boundable for Sphere {
+    fn bounding_box(&self) -> crate::larp::BoundingBox {
+        let center = &self.center;
+        let radius = Vector::splat(self.radius);
+
+        crate::larp::BoundingBox::new(center - &radius, center + radius)
+    }
+}
+
 #[derive(Debug)]
 pub struct SphereBuilder {
-    center: Ray,
+    center: Vector,
     radius: f64,
 
     material_index: MaterialIndex,
@@ -112,7 +120,7 @@ impl SphereBuilder {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            center: Ray::default(),
+            center: Vector::default(),
             radius: 0.,
             material_index: MaterialIndex(0),
         }
@@ -131,9 +139,9 @@ impl SphereBuilder {
     #[inline]
     #[must_use]
     pub const fn center(mut self, x: f64, y: f64, z: f64) -> Self {
-        self.center.origin.x = x;
-        self.center.origin.y = y;
-        self.center.origin.z = z;
+        self.center.x = x;
+        self.center.y = y;
+        self.center.z = z;
         self
     }
 
@@ -141,15 +149,6 @@ impl SphereBuilder {
     #[must_use]
     pub const fn radius(mut self, radius: f64) -> Self {
         self.radius = radius;
-        self
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn final_position(mut self, x: f64, y: f64, z: f64) -> Self {
-        self.center.direction.x = x;
-        self.center.direction.y = y;
-        self.center.direction.z = z;
         self
     }
 

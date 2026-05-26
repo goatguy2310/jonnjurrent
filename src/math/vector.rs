@@ -103,9 +103,13 @@ impl Vector {
     #[inline]
     #[must_use]
     pub const fn axis(&self) -> usize {
-        if self.x > self.y && self.x > self.z {
+        let ax = self.x.abs();
+        let ay = self.y.abs();
+        let az = self.z.abs();
+
+        if ax > ay && ax > az {
             0
-        } else if self.y > self.z {
+        } else if ay > az {
             1
         } else {
             2
@@ -116,6 +120,38 @@ impl Vector {
     #[must_use]
     pub fn reflect(&self, normal: &Vector) -> Vector {
         self - 2. * self.dot(normal) * normal
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn maximum_component(&self) -> f64 {
+        self.x.max(self.y).max(self.z)
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn minimum_component(&self) -> f64 {
+        self.x.min(self.y).min(self.z)
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn supremum(&self, other: &Self) -> Self {
+        Self::new(
+            self.x.max(other.x),
+            self.y.max(other.y),
+            self.z.max(other.z),
+        )
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn infimum(&self, other: &Self) -> Self {
+        Self::new(
+            self.x.min(other.x),
+            self.y.min(other.y),
+            self.z.min(other.z),
+        )
     }
 }
 

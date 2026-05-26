@@ -97,6 +97,22 @@ impl Sampleable for Quad {
     }
 }
 
+impl crate::larp::Boundable for Quad {
+    fn bounding_box(&self) -> crate::larp::BoundingBox {
+        const PADDING: f64 = 1e-6;
+
+        let p1 = &self.corner;
+        let p2 = p1 + &self.u;
+        let p3 = p1 + &self.v;
+        let p4 = &p2 + &p3 - p1;
+
+        let min = p1.infimum(&p2).infimum(&p3).infimum(&p4);
+        let max = p1.supremum(&p2).supremum(&p3).supremum(&p4);
+
+        crate::larp::BoundingBox::new(min, max).extend(PADDING)
+    }
+}
+
 pub struct QuadBuilder {
     corner: Vector,
     u: Vector,

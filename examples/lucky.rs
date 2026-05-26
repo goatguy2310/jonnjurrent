@@ -1,15 +1,10 @@
 use core::f64::consts::PI;
 
-use renderer::{BVHConfig, RenderConfig, SceneConfig, render_config, scene_config};
 use renderer::{ImageRenderer, Material, SceneBuilder, SphereBuilder, TriangleMeshBuilder};
+use renderer::{RenderConfig, SceneConfig, render_config, scene_config};
 
 render_config!(RConf, width: 1024, height: 1024, samples: 100);
 scene_config!(SConf);
-
-struct BVHConf;
-impl BVHConfig for BVHConf {
-    const USE_SAH: bool = true;
-}
 
 fn main() {
     let mut scene = SceneBuilder::new()
@@ -33,7 +28,7 @@ fn main() {
         .read_obj_file(&mut scene, "assets/lucky.obj")
         .scale_translate(0.1, [0., 20., 0.])
         .fallback_material(white)
-        .build::<BVHConf>();
+        .build();
 
     let wall_left = SphereBuilder::new()
         .center(-1000., 0., 0.)

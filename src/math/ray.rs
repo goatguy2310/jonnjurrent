@@ -4,28 +4,13 @@ use crate::math::Vector;
 pub struct Ray {
     pub origin: Vector,
     pub direction: Vector,
-    pub time: f64,
 }
 
 impl Ray {
     #[inline(always)]
     #[must_use]
     pub const fn new(origin: Vector, direction: Vector) -> Self {
-        Self {
-            origin,
-            direction,
-            time: 0.,
-        }
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn with_time(origin: Vector, direction: Vector, time: f64) -> Self {
-        Self {
-            origin,
-            direction,
-            time,
-        }
+        Self { origin, direction }
     }
 
     #[inline]
@@ -48,7 +33,6 @@ impl Default for Ray {
         Self {
             origin: Vector::ZERO,
             direction: Vector::ZERO,
-            time: 0.,
         }
     }
 }

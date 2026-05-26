@@ -73,7 +73,7 @@ impl MaterialLike for Material {
                     .normalize()
                     + (*fuzz * Vector::random_unit());
 
-                Ray::with_time(intersection_origin, reflected, ray.time)
+                Ray::new(intersection_origin, reflected)
             }
 
             Material::Dielectric(refraction_index) => {
@@ -95,16 +95,14 @@ impl MaterialLike for Material {
                 let schlick = r0 + (1.0 - r0) * (1.0 - cos_i.abs()).powi(5);
 
                 if k < 0. || fastrand::f64() < schlick {
-                    Ray::with_time(
+                    Ray::new(
                         &intersection.intersection + &normal * EPS,
                         Vector::reflect(&ray.direction, &intersection.normal),
-                        ray.time,
                     )
                 } else {
-                    Ray::with_time(
+                    Ray::new(
                         &intersection.intersection - &normal * EPS,
                         eta * (&ray.direction - cos_i * &normal) - k.sqrt() * &normal,
-                        ray.time,
                     )
                 }
             }

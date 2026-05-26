@@ -47,10 +47,9 @@ impl ImageRenderer {
                             -focal_distance,
                         );
 
-                        let ray = Ray::with_time(
+                        let ray = Ray::new(
                             camera_center.clone(),
                             pixel.normalize(),
-                            rng.f64_inclusive(),
                         );
                         color += scene.get_color::<SC>(&ray, 0, false);
                     }

@@ -1,5 +1,5 @@
 mod aabb;
-mod bvh;
+pub mod bvh;
 
-pub use aabb::BoundingBox;
-pub use bvh::{BVHConfig, BvhTree};
+pub use aabb::{Boundable, BoundingBox};
+pub use bvh::Bvh;
