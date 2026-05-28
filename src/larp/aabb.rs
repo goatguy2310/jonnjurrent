@@ -4,6 +4,21 @@ pub trait Boundable {
     fn bounding_box(&self) -> BoundingBox;
 }
 
+impl<T: Boundable> Boundable for [T] {
+    fn bounding_box(&self) -> BoundingBox {
+        self.iter().fold(BoundingBox::EMPTY, |mut acc, primitive| {
+            acc.union_mut(&primitive.bounding_box());
+            acc
+        })
+    }
+}
+
+impl<T: Boundable> Boundable for &[T] {
+    fn bounding_box(&self) -> BoundingBox {
+        (**self).bounding_box()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BoundingBox {
     pub min: Vector,
@@ -18,6 +33,13 @@ impl BoundingBox {
     #[must_use]
     pub const fn new(min: Vector, max: Vector) -> Self {
         Self { min, max }
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn with_padding(min: Vector, max: Vector) -> Self {
+        const PADDING: f64 = 1e-6;
+        Self::new(min, max).extend(PADDING)
     }
 
     #[inline]
@@ -98,6 +120,12 @@ impl BoundingBox {
         }
 
         true
+    }
+}
+
+impl Boundable for BoundingBox {
+    fn bounding_box(&self) -> Self {
+        self.clone()
     }
 }
 

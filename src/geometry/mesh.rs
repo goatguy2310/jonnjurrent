@@ -15,7 +15,7 @@ const EPS: f64 = 1e-9;
 
 #[derive(Debug, Default, Clone)]
 pub struct TriangleSoup {
-    pub vtx: [Vector; 3],
+    vtx: [Vector; 3],
     normal: [Vector; 3],
     uv: [(f64, f64); 3],
     material_index: MaterialIndex,

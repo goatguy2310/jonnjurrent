@@ -8,10 +8,11 @@ use crate::larp::*;
 criterion_group!(
     benches,
     build::seq_cat,
-    build::seq_lucky,
+    // build::seq_lucky,
     build::seq_maria,
-    traversal::seq_cat,
-    traversal::seq_lucky,
+    build::par_cat,
+    // traversal::seq_cat,
+    // traversal::seq_lucky,
     traversal::seq_maria,
 );
 criterion_main!(benches);

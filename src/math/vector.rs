@@ -1,3 +1,4 @@
+use core::f64;
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Neg, Sub, SubAssign,
 };
@@ -28,6 +29,7 @@ impl Vector {
     pub const MAX: Self = Self::splat(f64::MAX);
 
     pub const NAN: Self = Self::splat(f64::NAN);
+    pub const EPSILON: Self = Self::splat(1e-6);
     pub const INFINITY: Self = Self::splat(f64::INFINITY);
     pub const NEG_INFINITY: Self = Self::splat(f64::NEG_INFINITY);
 
@@ -152,6 +154,41 @@ impl Vector {
             self.y.min(other.y),
             self.z.min(other.z),
         )
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn clamp_scalar(&self, min: f64, max: f64) -> Self {
+        Self::new(
+            self.x.clamp(min, max),
+            self.y.clamp(min, max),
+            self.z.clamp(min, max),
+        )
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn recip(&self) -> Self {
+        let clamped = self.supremum(&Vector::EPSILON);
+        Self::new(1. / clamped.x, 1. / clamped.y, 1. / clamped.z)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn map<F: Fn(f64) -> f64>(&self, map: F) -> Self {
+        Self::new(map(self.x), map(self.y), map(self.z))
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn as_u32(&self) -> (u32, u32, u32) {
+        (self.x as u32, self.y as u32, self.z as u32)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn as_u64(&self) -> (u64, u64, u64) {
+        (self.x as u64, self.y as u64, self.z as u64)
     }
 }
 

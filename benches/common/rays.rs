@@ -4,6 +4,8 @@ use renderer::{
 };
 
 pub fn rays_into_bbox(bbox: BoundingBox, count: usize) -> Vec<Ray> {
+    fastrand::seed(42);
+
     let center = &bbox.center();
     let diagonal = bbox.diagonal();
 
