@@ -10,11 +10,12 @@
 
 #include "math/geometry.h"
 #include "geometry/object.h"
-#include "geometry/triangle_mesh.h"
 #include "geometry/scene.h"
 #include "io/obj_parser.h"
 #include "render/renderer.h"
+
 #include "accel/bvh.h"
+#include "accel/parallel_bvh.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323856
@@ -31,14 +32,17 @@ int main() {
 	Sphere ceiling(Vector(0, 1000, 0), 940, Vector(0.3, 0.5, 0.3));
 	Sphere floor(Vector(0, -1000, 0), 990, Vector(0.6, 0.5, 0.7));
 
-	TriangleMesh<BVH> cat(Vector(1., 1., 1.));
-	readOBJ("assets/cat.obj", cat);
+	TriangleMesh<ParallelBVH> cat(Vector(1., 1., 1.));
+	readOBJ("assets/epstein.obj", cat);
 	cat.rotateX(-M_PI * 0.5);
 //	cat.readTexture("assets/cat_diff.png");
 	cat.scale_translate(0.6, Vector(0., -5., 0.));
 	cat.updateBoundingBox();
 
-	cat.buildAccel();
+	std::chrono::steady_clock::time_point begin_bvh = std::chrono::steady_clock::now();
+	cat.buildAccel(8);
+	std::chrono::steady_clock::time_point end_bvh = std::chrono::steady_clock::now();
+	std::cout << "Finished building BVH in " << std::chrono::duration_cast<std::chrono::milliseconds> (end_bvh - begin_bvh).count() << "ms" << std::endl;
 
 	Scene scene;
 	scene.camera_center = Vector(0, 0, 55);
