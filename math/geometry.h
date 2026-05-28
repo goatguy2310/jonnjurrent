@@ -3,6 +3,8 @@
 #include <cmath>
 #include <vector>
 
+#include "utils.h"
+
 inline constexpr double eps = 1e-9;
 
 inline double sqr(double x) { return x * x; };
@@ -26,6 +28,23 @@ public:
 		data[1] /= n;
 		data[2] /= n;
 	}
+
+	static Vector randomUnit() {
+		while (true) {
+			Vector ret(
+				getRandom(-1., 1.),
+				getRandom(-1., 1.),
+				getRandom(-1., 1.)
+			);
+			double len2 = ret.norm2();
+			if (eps < len2 && len2 < 1.) {
+				ret.normalize();
+				return ret;
+			}
+		}
+		return Vector();
+	}
+
 	double operator[](int i) const { return data[i]; };
 	double& operator[](int i) { return data[i]; };
 	double data[3];
@@ -58,6 +77,7 @@ inline Vector cross(const Vector& a, const Vector& b) {
 
 class Ray {
 public:
+	Ray() = default;
 	Ray(const Vector& origin, const Vector& unit_direction) : O(origin), u(unit_direction) {};
 	Vector O, u;
 };

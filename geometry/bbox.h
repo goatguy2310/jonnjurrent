@@ -51,9 +51,21 @@ public:
 		}
 	}
 
+	Vector center() {
+		return (Bmin + Bmax) * .5;
+	}
+
 	double surfaceArea() const {
 		Vector d = Bmax - Bmin;
 		if (d[0] < 0 || d[1] < 0 || d[2] < 0) return 0.;
 		return 2. * (d[0] * d[1] + d[1] * d[2] + d[2] * d[0]);
+	}
+
+	Vector randomPoint() {
+		Vector ret;
+		for (int i = 0; i < 3; i++) {
+			ret[i] = getRandom(Bmin[i], Bmax[i]);
+		}
+		return ret;
 	}
 };
