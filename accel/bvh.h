@@ -43,7 +43,7 @@ public:
 
 		bvh_nodes[node_idx].box = computeBounds(indices, index_map, start, end);
 		BoundingBox& bounds = bvh_nodes[node_idx].box;
-		if (end - start < 5) return;
+		if (end - start <= 2) return;
 
 		int best_axis = -1;
 		int best_split_index = -1;
@@ -144,12 +144,15 @@ public:
 				double uN = dot(ray.u, N);
 				if (std::abs(uN) < eps) continue;
 
-				Vector Axu = cross(A - ray.O, ray.u);
+				Vector AO = A - ray.O;
+				Vector Axu = cross(AO, ray.u);
 
-				double beta = dot(e2, Axu) / uN;
-				double gamma = -dot(e1, Axu) / uN;
+				double inv_uN = 1.0 / uN;
+
+				double beta = dot(e2, Axu) * inv_uN;
+				double gamma = -dot(e1, Axu) * inv_uN;
 				double alpha = 1 - beta - gamma;
-				double t_cur = dot(A - ray.O, N) / uN;
+				double t_cur = dot(AO, N) * inv_uN;
 
 				if (t_cur >= best_hit.t || t_cur < eps || alpha < 0 || beta < 0 || gamma < 0) continue;
 

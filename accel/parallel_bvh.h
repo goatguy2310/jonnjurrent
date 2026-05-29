@@ -46,7 +46,7 @@ public:
 		bvh_nodes[node_idx].box = computeBounds(indices, index_map, start, end, num_threads);
 		BoundingBox& bounds = bvh_nodes[node_idx].box;
 
-		if (end - start < 5) return;
+		if (end - start <= 2) return;
 
 		int best_axis = -1;
 		int best_split_index = -1;

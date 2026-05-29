@@ -1,6 +1,7 @@
 #define _CRT_SECURE_NO_WARNINGS 1
 
 #include <iostream>
+#include <sstream>
 #include <chrono>
 
 #include <omp.h>
@@ -9,7 +10,6 @@
 #include "../stb/stb_image.h"
 
 #include "../math/geometry.h"
-#include "../geometry/object.h"
 #include "../geometry/scene.h"
 #include "../io/obj_parser.h"
 
@@ -19,6 +19,23 @@
 #ifndef M_PI
 #define M_PI 3.14159265358979323856
 #endif
+
+std::map<std::string, std::string> readConfig(const std::string& config_file) {
+	std::map<std::string, std::string> config;
+	std::ifstream file(config_file);
+	std::string line;
+	while (std::getline(file, line)) {
+		if (line.empty()) continue;
+
+		std::stringstream ss(line);
+		std::string k, v;
+		if (std::getline(ss, k, '=') && std::getline(ss, v)) {
+			config[k] = v;
+			std::cout << "Found " << k << " = " << v << "\n";
+		}
+	}
+	return config;
+}
 
 std::vector<Ray> randomRaysIntoBbox(BoundingBox& bbox, int count) {
 	double radius = (bbox.Bmax - bbox.Bmin).norm() * 2;
@@ -33,21 +50,10 @@ std::vector<Ray> randomRaysIntoBbox(BoundingBox& bbox, int count) {
 	return ret;
 }
 
-int main() {
-	Sphere center_sphere(Vector(0, 0, 0), 10., Vector(0.8, 0.8, 0.8));
-	Sphere wall_left(Vector(-1000, 0, 0), 940, Vector(0.5, 0.8, 0.1));
-	Sphere wall_right(Vector(1000, 0, 0), 940, Vector(0.9, 0.2, 0.3));
-	Sphere wall_front(Vector(0, 0, -1000), 940, Vector(0.1, 0.6, 0.7));
-	Sphere wall_behind(Vector(0, 0, 1000), 940, Vector(0.8, 0.2, 0.9));
-	Sphere ceiling(Vector(0, 1000, 0), 940, Vector(0.3, 0.5, 0.3));
-
-	std::string filename = "assets/Maria_C.obj";
-
+void benchmark(std::string filename) {
 	TriangleMesh<ParallelBVH> mesh(Vector(1., 1., 1.));
 	readOBJ(filename, mesh);
-//	mesh.rotateX(-M_PI * 0.5);
-//	mesh.readTexture("assets/Maria_C_Maria_O.png");
-	mesh.scale_translate(15., Vector(0., -25., 0.));
+	mesh.scale_translate(2., Vector(0., 0., 0.));
 	mesh.updateBoundingBox();
 
 	std::cout << "Loaded " << filename <<  " with " << mesh.vertices.size() << " vertices " << mesh.indices.size() << " triangles\n";
@@ -62,7 +68,7 @@ int main() {
 
 	scene.addObject(&mesh);
 
-	std::vector<int> thread_cnts = {1, 2, 4, 8, 12, 16};
+	std::vector<int> thread_cnts = {1, 2, 3, 4, 6, 8, 12, 16, 24, 32};
 	const int iteration_bvh = 20;
 	const int ray_count = 1e5;
 
@@ -90,6 +96,14 @@ int main() {
 
 		std::cout << std::endl;
 	}
+}
 
+int main() {
+	std::string config_file = "config.txt";
+	auto config = readConfig(config_file);
+
+	std::cout << "Reading from file " << config["obj_file"] << "\n";
+	
+	benchmark(config["obj_file"]);
 	return 0;
 }
