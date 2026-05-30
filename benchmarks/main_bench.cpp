@@ -58,19 +58,30 @@ void benchmark(std::string obj_file) {
 	const int ray_count = 1e5;
 
 	std::vector<Ray> rays = randomRaysIntoBbox(mesh.box, ray_count);
+	std::vector<TriangleIndices> backup_indices = mesh.indices;
 
+	int best_thread_cnt = 1, best_time = 1e9;
 	for (int num_thread : thread_cnts) {
 		std::cout << "Benchmarking " << num_thread << " thread(s)...\n";
 
 		// warmup
+		mesh.indices = backup_indices;
 		mesh.buildAccel(num_thread);
 
-		auto start_bvh = std::chrono::steady_clock::now();
+		auto bvh_time = 0LL;
 		for (int it = 0; it < iteration_bvh; it++) {
+			mesh.indices = backup_indices;
+	
+			auto start_bvh = std::chrono::steady_clock::now();
 			mesh.buildAccel(num_thread);
+			auto end_bvh = std::chrono::steady_clock::now();
+
+			bvh_time += std::chrono::duration_cast<std::chrono::milliseconds>(end_bvh - start_bvh).count();
 		}
-		auto end_bvh = std::chrono::steady_clock::now();
-		std::cout << "Average BVH build: " << std::chrono::duration_cast<std::chrono::milliseconds> (end_bvh - start_bvh).count() / iteration_bvh << "ms\n";
+		bvh_time /= iteration_bvh;
+		std::cout << "Average BVH build: " << bvh_time << "ms\n";
+
+		if (bvh_time < best_time) best_thread_cnt = num_thread, best_time = bvh_time;
 
 		auto start_render = std::chrono::steady_clock::now();
 		for (auto ray : rays) {
@@ -82,6 +93,41 @@ void benchmark(std::string obj_file) {
 
 		std::cout << std::endl;
 	}
+
+	std::cout << "Going forward with " << best_thread_cnt << " thread count\n\n";
+
+	int best_thres = 1024;
+	best_time = 1e9;
+	std::vector<int> parallel_thres = {256, 512, 1024, 2048, 4096, 8192};
+	for (int thres : parallel_thres) {
+		Config::set("parallel_threshold", std::to_string(thres));
+
+		std::cout << "Benchmarking with " << thres << " parallel thres cutoff...\n";
+
+		// warmup
+		mesh.indices = backup_indices;
+		mesh.buildAccel(best_thread_cnt);
+
+		auto bvh_time = 0LL;
+		for (int it = 0; it < iteration_bvh; it++) {
+			mesh.indices = backup_indices;
+
+			auto start_bvh = std::chrono::steady_clock::now();
+			mesh.buildAccel(best_thread_cnt);
+			auto end_bvh = std::chrono::steady_clock::now();
+
+			bvh_time += std::chrono::duration_cast<std::chrono::milliseconds>(end_bvh - start_bvh).count();
+		}
+		bvh_time /= iteration_bvh;
+		std::cout << "Average BVH build: " << bvh_time << "ms\n";
+		
+		if (bvh_time < best_time) best_thres = thres, best_time = bvh_time;
+
+		std::cout << std::endl;
+	}
+
+	std::cout << "Best threshold: " << best_thres << "\n\n";
+	Config::set("parallel_threshold", std::to_string(best_thres));
 }
 
 int main() {

@@ -131,8 +131,8 @@ public:
 		double scale = BINS_COUNT / (bounds.Bmax[best_axis] - bounds.Bmin[best_axis]);
 		int pivot_idx = parallelPartition(index_map, temp_index_map, flags, indices, start, end, best_axis, best_split_index, bounds.Bmin[best_axis], scale, BINS_COUNT, parallel_threshold, num_threads);
 
-		int left_idx = node_counter.fetch_add(2);
-		int right_idx = left_idx + 1;
+		int right_idx = node_counter.fetch_add(2);
+		int left_idx = right_idx - 1;
 
 		bvh_nodes[node_idx].left = left_idx;
 		bvh_nodes[node_idx].right = right_idx;
