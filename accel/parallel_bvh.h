@@ -57,83 +57,143 @@ public:
 		if (end - start <= 2) return;
 
 		int best_axis = -1;
-		int best_split_index = -1;
+		double max_extent = -1.0;
+		for (int i = 0; i < 3; i++) {
+			double extent = bounds.Bmax[i] - bounds.Bmin[i];
+			if (extent > max_extent) {
+				max_extent = extent;
+				best_axis = i;
+			}
+		}
 
-		// setup global bins for binned sah & reciprocal of total for each axis
-		Bin global_bins[3][BINS_COUNT];
-		double scales[3];
-		for (int axis = 0; axis < 3; axis++) {
-			scales[axis] = BINS_COUNT / (bounds.Bmax[axis] - bounds.Bmin[axis]);
+		if (max_extent < eps) {
+			bvh_nodes[node_idx].box = bounds;
+			return;
 		}
 
 		int len = end - start;
+		
+		// Find centroid bounds for tight bin mapping (required for single-axis SAH)
+		double centroid_min = std::numeric_limits<double>::infinity();
+		double centroid_max = -std::numeric_limits<double>::infinity();
+		
+		if (num_threads <= 1 || len < parallel_threshold) {
+			for (int i = start; i < end; i++) {
+				double c = indices[index_map[i]].centroid[best_axis];
+				centroid_min = std::min(centroid_min, c);
+				centroid_max = std::max(centroid_max, c);
+			}
+		} else {
+			std::vector<double> local_min(num_threads, std::numeric_limits<double>::infinity());
+			std::vector<double> local_max(num_threads, -std::numeric_limits<double>::infinity());
+			int block_sz = len / num_threads;
+			
+			auto minmaxThread = [&](int thread_id, int start_t, int end_t) {
+				double lmin = std::numeric_limits<double>::infinity();
+				double lmax = -std::numeric_limits<double>::infinity();
+				for (int i = start_t; i < end_t; i++) {
+					double c = indices[index_map[i]].centroid[best_axis];
+					lmin = std::min(lmin, c);
+					lmax = std::max(lmax, c);
+				}
+				local_min[thread_id] = lmin;
+				local_max[thread_id] = lmax;
+			};
+			
+			std::vector<std::thread> workers(num_threads - 1);
+			int start_blk = start;
+			for (int i = 0; i < num_threads - 1; i++) {
+				int end_blk = start_blk + block_sz;
+				workers[i] = std::thread(minmaxThread, i, start_blk, end_blk);
+				start_blk = end_blk;
+			}
+			minmaxThread(num_threads - 1, start_blk, end);
+			for (auto& w : workers) w.join();
+			
+			for (int t = 0; t < num_threads; t++) {
+				centroid_min = std::min(centroid_min, local_min[t]);
+				centroid_max = std::max(centroid_max, local_max[t]);
+			}
+		}
+
+		double centroid_extent = centroid_max - centroid_min;
+		if (centroid_extent < eps) {
+			bvh_nodes[node_idx].box = bounds;
+			return;
+		}
+
+		int best_split_index = -1;
+
+		// setup global bins for binned sah
+		Bin global_bins[BINS_COUNT];
+		double scale = BINS_COUNT / centroid_extent;
+
 		if (num_threads <= 1 || len < parallel_threshold) {
 			// fallback to sequential binning
 			for (int i = start; i < end; i++) {
 				int idx = index_map[i];	
+				double centroid = indices[idx].centroid[best_axis];
+				int bin_idx = (int)((centroid - centroid_min) * scale);
+				if (bin_idx < 0) bin_idx = 0;
+				else if (bin_idx >= BINS_COUNT) bin_idx = BINS_COUNT - 1;
 
-				for (int axis = 0; axis < 3; axis++) {
-					if (bounds.Bmax[axis] - bounds.Bmin[axis] < eps) continue;
-					double centroid = indices[idx].centroid[axis];
-					int bin_idx = std::clamp((int)((centroid - bounds.Bmin[axis]) * scales[axis]), 0, BINS_COUNT - 1);
-					global_bins[axis][bin_idx].count++;
-					global_bins[axis][bin_idx].bounds.merge(indices[idx].bbox);
-				}
+				global_bins[bin_idx].count++;
+				global_bins[bin_idx].bounds.merge(indices[idx].bbox);
 			}
 		} else {
 			// parallel map-reduce binning
 			int block_sz = len / num_threads;
-			std::vector<std::vector<std::vector<Bin>>> local_bins(num_threads, std::vector<std::vector<Bin>>(3, std::vector<Bin>(BINS_COUNT)));
+			std::vector<std::vector<Bin>> local_bins(num_threads, std::vector<Bin>(BINS_COUNT));
 			
 			auto binMap = [&](int thread_id, int start_bin, int end_bin) {
 				// map phase: populate thread-local bins
 				for (int i = start_bin; i < end_bin; i++) {
 					int idx = index_map[i];	
+					double centroid = indices[idx].centroid[best_axis];
+					int bin_idx = (int)((centroid - centroid_min) * scale);
+					if (bin_idx < 0) bin_idx = 0;
+					else if (bin_idx >= BINS_COUNT) bin_idx = BINS_COUNT - 1;
 
-					for (int axis = 0; axis < 3; axis++) {
-						if (bounds.Bmax[axis] - bounds.Bmin[axis] < eps) continue;
-						double centroid = indices[idx].centroid[axis];
-						int bin_idx = std::clamp((int)((centroid - bounds.Bmin[axis]) * scales[axis]), 0, BINS_COUNT - 1);
-						local_bins[thread_id][axis][bin_idx].count++;
-						local_bins[thread_id][axis][bin_idx].bounds.merge(indices[idx].bbox);
-					}
+					local_bins[thread_id][bin_idx].count++;
+					local_bins[thread_id][bin_idx].bounds.merge(indices[idx].bbox);
 				}
 			};
 
-			// spawn workers for map phase
 			std::vector<std::thread> workers(num_threads - 1);
-			int start_blk = start;
+			int start_bin = start;
 			for (int i = 0; i < num_threads - 1; i++) {
-				int end_blk = start_blk + block_sz;
-				workers[i] = std::thread(binMap, i, start_blk, end_blk);
-				start_blk = end_blk;
+				int end_bin = start_bin + block_sz;
+				workers[i] = std::thread(binMap, i, start_bin, end_bin);
+				start_bin = end_bin;
 			}
-			binMap(num_threads - 1, start_blk, end);
+			binMap(num_threads - 1, start_bin, end);
 			for (auto& w : workers) w.join();
 
 			// reduce phase: merge thread-local bins into global bins
 			for (int t = 0; t < num_threads; t++) {
-				for (int axis = 0; axis < 3; axis++) {
-					for (int b = 0; b < BINS_COUNT; b++) {
-						global_bins[axis][b].count += local_bins[t][axis][b].count;
-						global_bins[axis][b].bounds.merge(local_bins[t][axis][b].bounds);
-					}
+				for (int b = 0; b < BINS_COUNT; b++) {
+					global_bins[b].count += local_bins[t][b].count;
+					global_bins[b].bounds.merge(local_bins[t][b].bounds);
 				}
 			}
 		}
 
 		// evaluate sah cost to find best split
-		evaluateSAH(global_bins, bounds, end - start, best_axis, best_split_index);
+		evaluateSAH(global_bins, bounds, end - start, best_split_index);
 
 		// if no split is better than parent, make it a leaf
-		if (best_axis == -1) {
+		if (best_split_index == -1) {
 			bvh_nodes[node_idx].box = bounds;
 			return;
 		}
 
 		// parallel partition array based on best split
-		double scale = BINS_COUNT / (bounds.Bmax[best_axis] - bounds.Bmin[best_axis]);
-		int pivot_idx = parallelPartition(index_map, temp_index_map, flags, *p_indices, start, end, best_axis, best_split_index, bounds.Bmin[best_axis], scale, BINS_COUNT, parallel_threshold, num_threads);
+		double split_plane = centroid_min + centroid_extent * ((best_split_index + 1.0) / BINS_COUNT);
+		int pivot_idx = parallelPartition(index_map, temp_index_map, flags, *p_indices, start, end, best_axis, split_plane, parallel_threshold, num_threads);
+
+		if (pivot_idx == start || pivot_idx == end) {
+			pivot_idx = start + (end - start) / 2;
+		}
 
 		int right_idx = node_counter.fetch_add(2);
 		int left_idx = right_idx - 1;

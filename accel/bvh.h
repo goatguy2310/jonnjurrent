@@ -54,47 +54,72 @@ public:
 		if (end - start <= 2) return;
 
 		int best_axis = -1;
+		double max_extent = -1.0;
+		for (int i = 0; i < 3; i++) {
+			double extent = bounds.Bmax[i] - bounds.Bmin[i];
+			if (extent > max_extent) {
+				max_extent = extent;
+				best_axis = i;
+			}
+		}
+
+		if (max_extent < eps) {
+			bvh_nodes[node_idx].box = bounds;
+			return;
+		}
+
+		// Find centroid bounds for tight bin mapping (required for single-axis SAH)
+		double centroid_min = std::numeric_limits<double>::infinity();
+		double centroid_max = -std::numeric_limits<double>::infinity();
+		for (int i = start; i < end; i++) {
+			double c = indices[index_map[i]].centroid[best_axis];
+			centroid_min = std::min(centroid_min, c);
+			centroid_max = std::max(centroid_max, c);
+		}
+		
+		double centroid_extent = centroid_max - centroid_min;
+		if (centroid_extent < eps) {
+			bvh_nodes[node_idx].box = bounds;
+			return;
+		}
+
 		int best_split_index = -1;
 
-		// setup global bins for binned sah & reciprocal of total for each axis
-		Bin global_bins[3][BINS_COUNT];
-		double scales[3];
-		for (int axis = 0; axis < 3; axis++) {
-			scales[axis] = BINS_COUNT / (bounds.Bmax[axis] - bounds.Bmin[axis]);
-		}
+		// setup global bins for binned sah
+		Bin global_bins[BINS_COUNT];
+		double scale = BINS_COUNT / centroid_extent;
 
 		// sequential binning
 		for (int i = start; i < end; i++) {
 			int idx = index_map[i];
-			for (int axis = 0; axis < 3; axis++) {
-				if (bounds.Bmax[axis] - bounds.Bmin[axis] < eps) continue;
-				double centroid = indices[idx].centroid[axis];
-				int bin_idx = std::clamp((int)((centroid - bounds.Bmin[axis]) * scales[axis]), 0, BINS_COUNT - 1);
-				global_bins[axis][bin_idx].count++;
-				global_bins[axis][bin_idx].bounds.merge(indices[idx].bbox);
-			}
+			double centroid = indices[idx].centroid[best_axis];
+			int bin_idx = (int)((centroid - centroid_min) * scale);
+			if (bin_idx < 0) bin_idx = 0;
+			else if (bin_idx >= BINS_COUNT) bin_idx = BINS_COUNT - 1;
+
+			global_bins[bin_idx].count++;
+			global_bins[bin_idx].bounds.merge(indices[idx].bbox);
 		}
 
 		// evaluate sah cost to find best split
-		evaluateSAH(global_bins, bounds, end - start, best_axis, best_split_index);
+		evaluateSAH(global_bins, bounds, end - start, best_split_index);
 
 		// if no split is better than parent, make it a leaf
-		if (best_axis == -1) {
+		if (best_split_index == -1) {
 			bvh_nodes[node_idx].box = bounds;
 			return;
 		}
 
 		// sequential partition array based on best split
-		double scale = BINS_COUNT / (bounds.Bmax[best_axis] - bounds.Bmin[best_axis]);
-		int pivot_idx = start;
-		for (int i = start; i < end; i++) {
-			double centroid = indices[index_map[i]].centroid[best_axis];
-			int bin_idx = std::clamp((int)((centroid - bounds.Bmin[best_axis]) * scale), 0, BINS_COUNT - 1);
-			
-			if (bin_idx <= best_split_index) {
-				std::swap(index_map[i], index_map[pivot_idx]);
-				pivot_idx++;
-			}
+		double split_plane = centroid_min + centroid_extent * ((best_split_index + 1.0) / BINS_COUNT);
+		
+		auto it = std::partition(index_map.begin() + start, index_map.begin() + end, [&](int idx) {
+			return indices[idx].centroid[best_axis] <= split_plane;
+		});
+		int pivot_idx = std::distance(index_map.begin(), it);
+
+		if (pivot_idx == start || pivot_idx == end) {
+			pivot_idx = start + (end - start) / 2;
 		}
 
 		int left_idx = bvh_nodes.size();

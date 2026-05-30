@@ -14,49 +14,43 @@ struct Bin {
 	int count = 0;
 };
 
-inline void evaluateSAH(const Bin global_bins[3][BINS_COUNT], const BoundingBox& bounds, int indices_cnt, int& best_axis, int& best_split_index) {
-	best_axis = -1;
+inline void evaluateSAH(const Bin global_bins[BINS_COUNT], const BoundingBox& bounds, int indices_cnt, int& best_split_index) {
 	best_split_index = -1;
 	double min_cost = indices_cnt * 1.5;
 
-	for (int axis = 0; axis < 3; axis++) {
-		if (bounds.Bmax[axis] - bounds.Bmin[axis] < eps) continue;
+	int left_cnt[BINS_COUNT - 1], right_cnt[BINS_COUNT - 1];
+	double left_areas[BINS_COUNT - 1], right_areas[BINS_COUNT - 1];
 
-		int left_cnt[BINS_COUNT - 1], right_cnt[BINS_COUNT - 1];
-		double left_areas[BINS_COUNT - 1], right_areas[BINS_COUNT - 1];
+	// sweep: accumulate area and count from left to right (and vice versa)
+	int cur_cnt = 0;
+	BoundingBox current_box = BoundingBox::init();
+	for (int i = 0; i < BINS_COUNT - 1; i++) {
+		cur_cnt += global_bins[i].count;
+		current_box.merge(global_bins[i].bounds);
 
-		// sweep: accumulate area and count from left to right (and vice versa)
-		int cur_cnt = 0;
-		BoundingBox current_box = BoundingBox::init();
-		for (int i = 0; i < BINS_COUNT - 1; i++) {
-			cur_cnt += global_bins[axis][i].count;
-			current_box.merge(global_bins[axis][i].bounds);
+		left_cnt[i] = cur_cnt;
+		left_areas[i] = current_box.surfaceArea();
+	}
 
-			left_cnt[i] = cur_cnt;
-			left_areas[i] = current_box.surfaceArea();
-		}
+	cur_cnt = 0;
+	current_box = BoundingBox::init();
+	for (int i = BINS_COUNT - 1; i > 0; i--) {
+		cur_cnt += global_bins[i].count;
+		current_box.merge(global_bins[i].bounds);
 
-		cur_cnt = 0;
-		current_box = BoundingBox::init();
-		for (int i = BINS_COUNT - 1; i > 0; i--) {
-			cur_cnt += global_bins[axis][i].count;
-			current_box.merge(global_bins[axis][i].bounds);
+		right_cnt[i - 1] = cur_cnt;
+		right_areas[i - 1] = current_box.surfaceArea();
+	}
 
-			right_cnt[i - 1] = cur_cnt;
-			right_areas[i - 1] = current_box.surfaceArea();
-		}
-
-		// calculate sah cost for all BINS_COUNT splits
-		double node_area = bounds.surfaceArea();
-		for (int i = 0; i < BINS_COUNT - 1; i++) {
-			if (left_cnt[i] == 0 || right_cnt[i] == 0) continue;
-			
-			double cost = 1. + (left_cnt[i] * left_areas[i] + right_cnt[i] * right_areas[i]) / node_area;
-			if (cost < min_cost) {
-				min_cost = cost;
-				best_axis = axis;
-				best_split_index = i;
-			}
+	// calculate sah cost for all BINS_COUNT splits
+	double node_area = bounds.surfaceArea();
+	for (int i = 0; i < BINS_COUNT - 1; i++) {
+		if (left_cnt[i] == 0 || right_cnt[i] == 0) continue;
+		
+		double cost = 1. + (left_cnt[i] * left_areas[i] + right_cnt[i] * right_areas[i]) / node_area;
+		if (cost < min_cost) {
+			min_cost = cost;
+			best_split_index = i;
 		}
 	}
 }
@@ -66,22 +60,15 @@ struct PartitionInfo {
 	int right_start;
 };
 
-inline int parallelPartition(std::vector<int>& index_map, std::vector<int>& temp_index_map, std::vector<uint8_t>& is_left, const std::vector<TriangleIndices>& indices, int start, int end, int best_axis, int best_split_index, double min_bound, double scale, int num_bins, int parallel_threshold, int num_threads) {
+inline int parallelPartition(std::vector<int>& index_map, std::vector<int>& temp_index_map, std::vector<uint8_t>& is_left, const std::vector<TriangleIndices>& indices, int start, int end, int best_axis, double split_plane, int parallel_threshold, int num_threads) {
 	int len = end - start;
 
 	// fallback to sequential partition for small arrays
 	if (num_threads <= 1 || len < parallel_threshold) {
-		int pivot = start;
-		for (int i = start; i < end; i++) {
-			double centroid = indices[index_map[i]].centroid[best_axis];
-			int bin_idx = std::clamp((int)((centroid - min_bound) * scale), 0, num_bins - 1);
-
-			if (bin_idx <= best_split_index) {
-				std::swap(index_map[i], index_map[pivot]);
-				pivot++;
-			}
-		}
-		return pivot;
+		auto it = std::partition(index_map.begin() + start, index_map.begin() + end, [&](int idx) {
+			return indices[idx].centroid[best_axis] <= split_plane;
+		});
+		return std::distance(index_map.begin(), it);
 	}
 
 	std::vector<int> local_left_cnt(num_threads, 0);
@@ -91,10 +78,7 @@ inline int parallelPartition(std::vector<int>& index_map, std::vector<int>& temp
 	auto mapThread = [&](int thread_id, int start_t, int end_t) {
 		int count = 0;
 		for (int j = start_t; j < end_t; j++) {
-			double centroid = indices[index_map[j]].centroid[best_axis];
-			int bin_idx = std::clamp((int)((centroid - min_bound) * scale), 0, num_bins - 1);
-
-			bool left = (bin_idx <= best_split_index);
+			bool left = (indices[index_map[j]].centroid[best_axis] <= split_plane);
 			is_left[j] = left ? 1 : 0;
 			if (left) count++;
 		}
@@ -168,22 +152,15 @@ inline int parallelPartition(std::vector<int>& index_map, std::vector<int>& temp
 	return global_pivot;
 }
 
-inline int ompPartition(std::vector<int>& index_map, std::vector<int>& temp_index_map, std::vector<uint8_t>& is_left, const std::vector<TriangleIndices>& indices, int start, int end, int best_axis, int best_split_index, double min_bound, double scale, int num_bins, int num_threads) {
+inline int ompPartition(std::vector<int>& index_map, std::vector<int>& temp_index_map, std::vector<uint8_t>& is_left, const std::vector<TriangleIndices>& indices, int start, int end, int best_axis, double split_plane, int num_threads) {
 	int len = end - start;
 
 	// fallback to sequential partition for small arrays
 	if (num_threads <= 1 || len < 1024) {
-		int pivot = start;
-		for (int i = start; i < end; i++) {
-			double centroid = indices[index_map[i]].centroid[best_axis];
-			int bin_idx = std::clamp((int)((centroid - min_bound) * scale), 0, num_bins - 1);
-
-			if (bin_idx <= best_split_index) {
-				std::swap(index_map[i], index_map[pivot]);
-				pivot++;
-			}
-		}
-		return pivot;
+		auto it = std::partition(index_map.begin() + start, index_map.begin() + end, [&](int idx) {
+			return indices[idx].centroid[best_axis] <= split_plane;
+		});
+		return std::distance(index_map.begin(), it);
 	}
 
 	std::vector<int> local_left_cnt(num_threads, 0);
@@ -198,10 +175,7 @@ inline int ompPartition(std::vector<int>& index_map, std::vector<int>& temp_inde
 
 		int count = 0;
 		for (int j = start_t; j < end_t; j++) {
-			double centroid = indices[index_map[j]].centroid[best_axis];
-			int bin_idx = std::clamp((int)((centroid - min_bound) * scale), 0, num_bins - 1);
-
-			bool left = (bin_idx <= best_split_index);
+			bool left = (indices[index_map[j]].centroid[best_axis] <= split_plane);
 			is_left[j] = left ? 1 : 0;
 			if (left) count++;
 		}
