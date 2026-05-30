@@ -84,35 +84,28 @@ public:
 				centroid_max = std::max(centroid_max, c);
 			}
 		} else {
-			std::vector<double> local_min(num_threads, std::numeric_limits<double>::infinity());
-			std::vector<double> local_max(num_threads, -std::numeric_limits<double>::infinity());
+			std::vector<std::thread> workers(num_threads - 1);
+			std::vector<double> lmin(num_threads, std::numeric_limits<double>::infinity());
+			std::vector<double> lmax(num_threads, -std::numeric_limits<double>::infinity());
 			int block_sz = len / num_threads;
 			
-			auto minmaxThread = [&](int thread_id, int start_t, int end_t) {
-				double lmin = std::numeric_limits<double>::infinity();
-				double lmax = -std::numeric_limits<double>::infinity();
-				for (int i = start_t; i < end_t; i++) {
+			auto minmax_worker = [&](int id, int s, int e) {
+				for (int i = s; i < e; i++) {
 					double c = indices[index_map[i]].centroid[best_axis];
-					lmin = std::min(lmin, c);
-					lmax = std::max(lmax, c);
+					lmin[id] = std::min(lmin[id], c);
+					lmax[id] = std::max(lmax[id], c);
 				}
-				local_min[thread_id] = lmin;
-				local_max[thread_id] = lmax;
 			};
-			
-			std::vector<std::thread> workers(num_threads - 1);
-			int start_blk = start;
+
 			for (int i = 0; i < num_threads - 1; i++) {
-				int end_blk = start_blk + block_sz;
-				workers[i] = std::thread(minmaxThread, i, start_blk, end_blk);
-				start_blk = end_blk;
+				workers[i] = std::thread(minmax_worker, i, start + i * block_sz, start + (i + 1) * block_sz);
 			}
-			minmaxThread(num_threads - 1, start_blk, end);
+			minmax_worker(num_threads - 1, start + (num_threads - 1) * block_sz, end);
+
 			for (auto& w : workers) w.join();
-			
-			for (int t = 0; t < num_threads; t++) {
-				centroid_min = std::min(centroid_min, local_min[t]);
-				centroid_max = std::max(centroid_max, local_max[t]);
+			for (int i = 0; i < num_threads; i++) {
+				centroid_min = std::min(centroid_min, lmin[i]);
+				centroid_max = std::max(centroid_max, lmax[i]);
 			}
 		}
 
@@ -160,13 +153,10 @@ public:
 			};
 
 			std::vector<std::thread> workers(num_threads - 1);
-			int start_bin = start;
 			for (int i = 0; i < num_threads - 1; i++) {
-				int end_bin = start_bin + block_sz;
-				workers[i] = std::thread(binMap, i, start_bin, end_bin);
-				start_bin = end_bin;
+				workers[i] = std::thread(binMap, i, start + i * block_sz, start + (i + 1) * block_sz);
 			}
-			binMap(num_threads - 1, start_bin, end);
+			binMap(num_threads - 1, start + (num_threads - 1) * block_sz, end);
 			for (auto& w : workers) w.join();
 
 			// reduce phase: merge thread-local bins into global bins
@@ -187,16 +177,24 @@ public:
 			return;
 		}
 
-		// parallel partition array based on best split
+		// two pointer partitioning based on best split
 		double split_plane = centroid_min + centroid_extent * ((best_split_index + 1.0) / BINS_COUNT);
-		int pivot_idx = parallelPartition(index_map, temp_index_map, flags, *p_indices, start, end, best_axis, split_plane, parallel_threshold, num_threads);
-
-		if (pivot_idx == start || pivot_idx == end) {
-			pivot_idx = start + (end - start) / 2;
+		
+		int left = start;
+		int right = end - 1;
+		while (left <= right) {
+			if (indices[index_map[left]].centroid[best_axis] <= split_plane) {
+				left++;
+			} else {
+				std::swap(index_map[left], index_map[right]);
+				right--;
+			}
 		}
 
-		int right_idx = node_counter.fetch_add(2);
-		int left_idx = right_idx - 1;
+		int pivot_idx = std::clamp(left, start + 1, end - 1);
+
+		int left_idx = node_counter.fetch_add(2);
+		int right_idx = left_idx + 1;
 
 		bvh_nodes[node_idx].left = left_idx;
 		bvh_nodes[node_idx].right = right_idx;
