@@ -1,1 +1,5 @@
 obj_file=assets/Maria_C.obj
+flatten=1
+num_threads=8
+parallel_threshold=1024
+adaptive_split=1

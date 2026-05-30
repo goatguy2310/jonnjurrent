@@ -10,6 +10,7 @@
 #include "../geometry/object.h"
 #include "../geometry/triangle_indices.h"
 #include "../geometry/bbox.h"
+#include "../core/config.h"
 #include "utils.h"
 
 #include "bvh.h"
@@ -28,22 +29,25 @@ public:
 
 		std::atomic<int> node_counter(1);
 
-		buildBVHNode(vertices, indices, index_map, temp_index_map, flags, 0, 0, indices.size(), num_threads, node_counter);
+		buildBVHNode(vertices, indices, index_map, temp_index_map, flags, 0, 0, indices.size(), Config::getInt("adaptive_split"), Config::getInt("parallel_threshold"), num_threads, node_counter);
 
 		// forward permutation: reorder indices in-place using double copy
-		std::vector<TriangleIndices> temp(indices.size());
+		std::vector<TriangleIndices> indices_temp(indices.size());
+		#pragma omp parallel for schedule(static)
 		for (size_t i = 0; i < indices.size(); i++) {
-			temp[i] = std::move(indices[index_map[i]]);
+			indices_temp[i] = indices[index_map[i]];
 		}
-		indices = std::move(temp);
+		indices = std::move(indices_temp);
+
+		if (Config::getInt("flatten")) flatten();
 	}
 
 	// node_idx: index in the node vector; start, end: index in the vertices vector
-	void buildBVHNode(const std::vector<Vector>& vertices, std::vector<TriangleIndices>& indices, std::vector<int>& index_map, std::vector<int>& temp_index_map, std::vector<uint8_t>& flags, int node_idx, int start, int end, int num_threads, std::atomic<int>& node_counter) {
+	void buildBVHNode(const std::vector<Vector>& vertices, std::vector<TriangleIndices>& indices, std::vector<int>& index_map, std::vector<int>& temp_index_map, std::vector<uint8_t>& flags, int node_idx, int start, int end, bool adaptive_split, int parallel_threshold, int num_threads, std::atomic<int>& node_counter) {
 		bvh_nodes[node_idx].start = start;
 		bvh_nodes[node_idx].end = end;
 
-		bvh_nodes[node_idx].box = computeBounds(indices, index_map, start, end, num_threads);
+		bvh_nodes[node_idx].box = computeBounds(indices, index_map, start, end, parallel_threshold, num_threads);
 		BoundingBox& bounds = bvh_nodes[node_idx].box;
 
 		if (end - start <= 2) return;
@@ -59,7 +63,7 @@ public:
 		}
 
 		int len = end - start;
-		if (num_threads <= 1 || len < 1024) {
+		if (num_threads <= 1 || len < parallel_threshold) {
 			// fallback to sequential binning
 			for (int i = start; i < end; i++) {
 				int idx = index_map[i];	
@@ -125,10 +129,10 @@ public:
 
 		// parallel partition array based on best split
 		double scale = BINS_COUNT / (bounds.Bmax[best_axis] - bounds.Bmin[best_axis]);
-		int pivot_idx = parallelPartition(index_map, temp_index_map, flags, indices, start, end, best_axis, best_split_index, bounds.Bmin[best_axis], scale, BINS_COUNT, num_threads);
+		int pivot_idx = parallelPartition(index_map, temp_index_map, flags, indices, start, end, best_axis, best_split_index, bounds.Bmin[best_axis], scale, BINS_COUNT, parallel_threshold, num_threads);
 
-		int left_idx = node_counter.fetch_add(1);
-		int right_idx = node_counter.fetch_add(1);
+		int left_idx = node_counter.fetch_add(2);
+		int right_idx = left_idx + 1;
 
 		bvh_nodes[node_idx].left = left_idx;
 		bvh_nodes[node_idx].right = right_idx;
@@ -137,26 +141,29 @@ public:
 		// proportional thread allocation based on child workload size
 		int left_threads = 1, right_threads = 1;
 		if (num_threads > 1) {
-			int total_size = end - start;
-			int left_size = pivot_idx - start;
-			left_threads = std::max(1, (int) std::round((double) left_size / total_size * num_threads));
-			left_threads = std::clamp(left_threads, 1, num_threads - 1);
-			right_threads = num_threads - left_threads;
-		}
+			if (adaptive_split) {
+				int total_size = end - start;
+				int left_size = pivot_idx - start;
+				left_threads = std::max(1, (int) std::round((double) left_size / total_size * num_threads));
+				left_threads = std::clamp(left_threads, 1, num_threads - 1);
+				right_threads = num_threads - left_threads;
+			} else {
+				left_threads = num_threads / 2;
+				right_threads = num_threads - left_threads;
+			}
 
-		if (num_threads > 1) {
 			std::thread left_worker([&]() {
-				buildBVHNode(vertices, indices, index_map, temp_index_map, flags, left_idx, start, pivot_idx, left_threads, node_counter);
+				buildBVHNode(vertices, indices, index_map, temp_index_map, flags, left_idx, start, pivot_idx, adaptive_split, parallel_threshold, left_threads, node_counter);
 			});
-			buildBVHNode(vertices, indices, index_map, temp_index_map, flags, right_idx, pivot_idx, end, right_threads, node_counter);
+			buildBVHNode(vertices, indices, index_map, temp_index_map, flags, right_idx, pivot_idx, end, adaptive_split, parallel_threshold, right_threads, node_counter);
 			left_worker.join();
 		} else {
-			buildBVHNode(vertices, indices, index_map, temp_index_map, flags, left_idx, start, pivot_idx, 1, node_counter);
-			buildBVHNode(vertices, indices, index_map, temp_index_map, flags, right_idx, pivot_idx, end, 1, node_counter);
+			buildBVHNode(vertices, indices, index_map, temp_index_map, flags, left_idx, start, pivot_idx, adaptive_split, parallel_threshold, 1, node_counter);
+			buildBVHNode(vertices, indices, index_map, temp_index_map, flags, right_idx, pivot_idx, end, adaptive_split, parallel_threshold, 1, node_counter);
 		}
 	}
 
-	BoundingBox computeBounds(const std::vector<TriangleIndices>& indices, const std::vector<int>& index_map, int start, int end, int num_threads) {
+	BoundingBox computeBounds(const std::vector<TriangleIndices>& indices, const std::vector<int>& index_map, int start, int end, int parallel_threshold, int num_threads) {
 		BoundingBox ret = BoundingBox::init();
 
 		auto boundsThread = [&](int start, int end, BoundingBox& bbox) {
@@ -166,7 +173,7 @@ public:
 		};	
 
 		int len = end - start;
-		if (num_threads <= 1 || len <= 1024) {
+		if (num_threads <= 1 || len <= parallel_threshold) {
 			boundsThread(start, end, ret);
 			return ret;
 		}
@@ -187,6 +194,38 @@ public:
 		for (auto& bbox : bbox_vec) ret.merge(bbox);
 
 		return ret;
+	}
+
+	void flatten() {
+		if (bvh_nodes.empty()) return;
+
+		std::vector<BVHNode> bvh_nodes_flat;
+		bvh_nodes_flat.reserve(bvh_nodes.size());
+
+		bvh_nodes_flat.push_back(bvh_nodes[0]);
+
+		flattenNode(0, 0, bvh_nodes_flat);
+
+		bvh_nodes = std::move(bvh_nodes_flat);
+	}
+
+	void flattenNode(int old_idx, int new_idx, std::vector<BVHNode>& bvh_nodes_flat) {
+		if (!bvh_nodes[old_idx].has_child) return;
+
+		auto& old_node = bvh_nodes[old_idx];
+		int l_old = old_node.left, r_old = old_node.right;
+
+		int l_new = bvh_nodes_flat.size();
+		bvh_nodes_flat.push_back(bvh_nodes[l_old]);
+
+		int r_new = bvh_nodes_flat.size();
+		bvh_nodes_flat.push_back(bvh_nodes[r_old]);
+
+		bvh_nodes_flat[new_idx].left = l_new;
+		bvh_nodes_flat[new_idx].right = r_new;
+
+		flattenNode(l_old, l_new, bvh_nodes_flat);
+		flattenNode(r_old, r_new, bvh_nodes_flat);
 	}
 
 	bool intersect(const Ray& ray, const std::vector<Vector>& vertices, const std::vector<TriangleIndices>& indices, const std::vector<Vector>& normals, const std::vector<Vector>& uvs, Intersection& best_hit, int idx = 0) const {

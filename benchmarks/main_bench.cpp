@@ -20,23 +20,6 @@
 #define M_PI 3.14159265358979323856
 #endif
 
-std::map<std::string, std::string> readConfig(const std::string& config_file) {
-	std::map<std::string, std::string> config;
-	std::ifstream file(config_file);
-	std::string line;
-	while (std::getline(file, line)) {
-		if (line.empty()) continue;
-
-		std::stringstream ss(line);
-		std::string k, v;
-		if (std::getline(ss, k, '=') && std::getline(ss, v)) {
-			config[k] = v;
-			std::cout << "Found " << k << " = " << v << "\n";
-		}
-	}
-	return config;
-}
-
 std::vector<Ray> randomRaysIntoBbox(BoundingBox& bbox, int count) {
 	double radius = (bbox.Bmax - bbox.Bmin).norm() * 2;
 	std::vector<Ray> ret(count);
@@ -50,13 +33,15 @@ std::vector<Ray> randomRaysIntoBbox(BoundingBox& bbox, int count) {
 	return ret;
 }
 
-void benchmark(std::string filename) {
+void benchmark(std::string obj_file) {
 	TriangleMesh<ParallelBVH> mesh(Vector(1., 1., 1.));
-	readOBJ(filename, mesh);
+
+	std::cout << "Reading from file " << obj_file << "\n";
+	readOBJ(obj_file, mesh);
 	mesh.scale_translate(2., Vector(0., 0., 0.));
 	mesh.updateBoundingBox();
 
-	std::cout << "Loaded " << filename <<  " with " << mesh.vertices.size() << " vertices " << mesh.indices.size() << " triangles\n";
+	std::cout << "Loaded " << obj_file <<  " with " << mesh.vertices.size() << " vertices " << mesh.indices.size() << " triangles\n";
 
 	Scene scene;
 	scene.camera_center = Vector(0, 0, 55);
@@ -92,18 +77,17 @@ void benchmark(std::string filename) {
 			scene.getColor(ray, 0);
 		}
 		auto end_render = std::chrono::steady_clock::now();	
-		std::cout << "Average scene render: " << std::chrono::duration_cast<std::chrono::milliseconds> (end_render - start_render).count() << "ms for " << ray_count << " rays\n";
+		auto time = std::chrono::duration_cast<std::chrono::milliseconds> (end_render - start_render).count();
+		std::cout << "Average scene render: " << time << "ms for " << ray_count << " rays (" << (double) time / ray_count << "ms per ray)\n";
 
 		std::cout << std::endl;
 	}
 }
 
 int main() {
-	std::string config_file = "config.txt";
-	auto config = readConfig(config_file);
+	Config::load("config.txt");
+	std::string obj_file = Config::get("obj_file");
 
-	std::cout << "Reading from file " << config["obj_file"] << "\n";
-	
-	benchmark(config["obj_file"]);
+	benchmark(obj_file);
 	return 0;
 }

@@ -25,7 +25,7 @@ build/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
--include $(OBJS:.o=.d)
+-include $(OBJS:.o=.d) $(BENCH_OBJS:.o=.d)
 
 clean:
 	rm -rf build/ image.png

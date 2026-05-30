@@ -7,6 +7,7 @@
 #include "../geometry/object.h"
 #include "../geometry/triangle_indices.h"
 #include "../geometry/bbox.h"
+#include "../core/config.h"
 #include "utils.h"
 
 class BVHNode {
@@ -34,6 +35,8 @@ public:
 			temp[i] = std::move(indices[index_map[i]]);
 		}
 		indices = std::move(temp);
+
+		if (Config::getInt("flatten")) flatten();
 	}
 
 	// node_idx: index in the node vector; start, end: index in the vertices vector
@@ -107,6 +110,38 @@ public:
 
 		for (int i = start; i < end; i++) ret.merge(indices[index_map[i]].bbox);
 		return ret;
+	}
+
+	void flatten() {
+		if (bvh_nodes.empty()) return;
+
+		std::vector<BVHNode> bvh_nodes_flat;
+		bvh_nodes_flat.reserve(bvh_nodes.size());
+
+		bvh_nodes_flat.push_back(bvh_nodes[0]);
+
+		flattenNode(0, 0, bvh_nodes_flat);
+
+		bvh_nodes = std::move(bvh_nodes_flat);
+	}
+
+	void flattenNode(int old_idx, int new_idx, std::vector<BVHNode>& bvh_nodes_flat) {
+		if (!bvh_nodes[old_idx].has_child) return;
+
+		auto& old_node = bvh_nodes[old_idx];
+		int l_old = old_node.left, r_old = old_node.right;
+
+		int l_new = bvh_nodes_flat.size();
+		bvh_nodes_flat.push_back(bvh_nodes[l_old]);
+
+		int r_new = bvh_nodes_flat.size();
+		bvh_nodes_flat.push_back(bvh_nodes[r_old]);
+
+		bvh_nodes_flat[new_idx].left = l_new;
+		bvh_nodes_flat[new_idx].right = r_new;
+
+		flattenNode(l_old, l_new, bvh_nodes_flat);
+		flattenNode(r_old, r_new, bvh_nodes_flat);
 	}
 
 	bool intersect(const Ray& ray, const std::vector<Vector>& vertices, const std::vector<TriangleIndices>& indices, const std::vector<Vector>& normals, const std::vector<Vector>& uvs, Intersection& best_hit, int idx = 0) const {

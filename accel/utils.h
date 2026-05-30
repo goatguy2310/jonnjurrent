@@ -3,6 +3,7 @@
 #include <vector>
 #include <algorithm>
 #include <thread>
+#include <omp.h>
 #include "../geometry/triangle_indices.h"
 #include "../geometry/bbox.h"
 
@@ -65,11 +66,11 @@ struct PartitionInfo {
 	int right_start;
 };
 
-inline int parallelPartition(std::vector<int>& index_map, std::vector<int>& temp_index_map, std::vector<uint8_t>& is_left, const std::vector<TriangleIndices>& indices, int start, int end, int best_axis, int best_split_index, double min_bound, double scale, int num_bins, int num_threads) {
+inline int parallelPartition(std::vector<int>& index_map, std::vector<int>& temp_index_map, std::vector<uint8_t>& is_left, const std::vector<TriangleIndices>& indices, int start, int end, int best_axis, int best_split_index, double min_bound, double scale, int num_bins, int parallel_threshold, int num_threads) {
 	int len = end - start;
 
 	// fallback to sequential partition for small arrays
-	if (num_threads <= 1 || len < 1024) {
+	if (num_threads <= 1 || len < parallel_threshold) {
 		int pivot = start;
 		for (int i = start; i < end; i++) {
 			double centroid = indices[index_map[i]].centroid[best_axis];
@@ -163,6 +164,93 @@ inline int parallelPartition(std::vector<int>& index_map, std::vector<int>& temp
 	}
 	copyThread(start_blk, end);
 	for (auto& w : workers) w.join();
+
+	return global_pivot;
+}
+
+inline int ompPartition(std::vector<int>& index_map, std::vector<int>& temp_index_map, std::vector<uint8_t>& is_left, const std::vector<TriangleIndices>& indices, int start, int end, int best_axis, int best_split_index, double min_bound, double scale, int num_bins, int num_threads) {
+	int len = end - start;
+
+	// fallback to sequential partition for small arrays
+	if (num_threads <= 1 || len < 1024) {
+		int pivot = start;
+		for (int i = start; i < end; i++) {
+			double centroid = indices[index_map[i]].centroid[best_axis];
+			int bin_idx = std::clamp((int)((centroid - min_bound) * scale), 0, num_bins - 1);
+
+			if (bin_idx <= best_split_index) {
+				std::swap(index_map[i], index_map[pivot]);
+				pivot++;
+			}
+		}
+		return pivot;
+	}
+
+	std::vector<int> local_left_cnt(num_threads, 0);
+	int block_sz = len / num_threads;
+
+	// map: evaluate split condition and store in is_left
+	#pragma omp parallel num_threads(num_threads)
+	{
+		int tid = omp_get_thread_num();
+		int start_t = start + tid * block_sz;
+		int end_t = (tid == num_threads - 1) ? end : start_t + block_sz;
+
+		int count = 0;
+		for (int j = start_t; j < end_t; j++) {
+			double centroid = indices[index_map[j]].centroid[best_axis];
+			int bin_idx = std::clamp((int)((centroid - min_bound) * scale), 0, num_bins - 1);
+
+			bool left = (bin_idx <= best_split_index);
+			is_left[j] = left ? 1 : 0;
+			if (left) count++;
+		}
+		local_left_cnt[tid] = count;
+	}
+
+	// scan: compute prefix sums to find global memory offsets
+	std::vector<PartitionInfo> pinfo(num_threads);
+	int total_left = 0;
+	for (int i = 0; i < num_threads; i++) {
+		pinfo[i].left_start = start + total_left;
+		total_left += local_left_cnt[i];
+	}
+	int global_pivot = start + total_left;
+
+	int current_right = global_pivot;
+	for (int i = 0; i < num_threads; i++) {
+		pinfo[i].right_start = current_right;
+		int chunk_size = (i != num_threads - 1) ? block_sz : (len - i * block_sz);
+		current_right += (chunk_size - local_left_cnt[i]);
+	}
+
+	// scatter: move elements to temporary buffer without data races
+	#pragma omp parallel num_threads(num_threads)
+	{
+		int tid = omp_get_thread_num();
+		int start_t = start + tid * block_sz;
+		int end_t = (tid == num_threads - 1) ? end : start_t + block_sz;
+		int l_cursor = pinfo[tid].left_start;
+		int r_cursor = pinfo[tid].right_start;
+		for (int j = start_t; j < end_t; j++) {
+			if (is_left[j]) {
+				temp_index_map[l_cursor++] = index_map[j];
+			} else {
+				temp_index_map[r_cursor++] = index_map[j];
+			}
+		}
+	}
+
+	// copy temp buffer back to original array
+	#pragma omp parallel num_threads(num_threads)
+	{
+		int tid = omp_get_thread_num();
+		int start_t = start + tid * block_sz;
+		int end_t = (tid == num_threads - 1) ? end : start_t + block_sz;
+		for (int j = start_t; j < end_t; j++) {
+			index_map[j] = temp_index_map[j];
+		}
+	}
 
 	return global_pivot;
 }

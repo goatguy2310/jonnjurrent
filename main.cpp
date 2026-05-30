@@ -14,6 +14,7 @@
 #include "geometry/scene.h"
 #include "io/obj_parser.h"
 #include "render/renderer.h"
+#include "core/config.h"
 
 #include "accel/bvh.h"
 #include "accel/parallel_bvh.h"
@@ -22,26 +23,8 @@
 #define M_PI 3.14159265358979323856
 #endif
 
-std::map<std::string, std::string> readConfig(const std::string& config_file) {
-	std::map<std::string, std::string> config;
-	std::ifstream file(config_file);
-	std::string line;
-	while (std::getline(file, line)) {
-		if (line.empty()) continue;
-
-		std::stringstream ss(line);
-		std::string k, v;
-		if (std::getline(ss, k, '=') && std::getline(ss, v)) {
-			config[k] = v;
-			std::cout << "Found " << k << " = " << v << "\n";
-		}
-	}
-	return config;
-}
-
 int main() {
-	std::string config_file = "config.txt";
-	auto config = readConfig(config_file);
+	Config::load("config.txt");
 	
 	std::chrono::steady_clock::time_point begin_prep = std::chrono::steady_clock::now();
 
@@ -54,17 +37,20 @@ int main() {
 	Sphere floor(Vector(0, -1000, 0), 990, Vector(0.6, 0.5, 0.7));
 
 
-	std::cout << "Reading from file " << config["obj_file"] << "\n";
+	std::string obj_file = Config::get("obj_file");
+	std::cout << "Reading from file " << obj_file << "\n";
 
 	TriangleMesh<ParallelBVH> mesh(Vector(1., 1., 1.));
-	readOBJ(config["obj_file"], mesh);
-	mesh.rotateX(-M_PI * 0.5);
+	readOBJ(obj_file, mesh);
+//	mesh.rotateX(-M_PI * 0.5);
 //	mesh.readTexture("assets/cat_diff.png");
-	mesh.scale_translate(0.6, Vector(0., -5., 0.));
+	mesh.scale_translate(15., Vector(0., -25., 0.));
 	mesh.updateBoundingBox();
 
 	std::chrono::steady_clock::time_point begin_bvh = std::chrono::steady_clock::now();
-	mesh.buildAccel(8);
+	int num_threads = Config::getInt("num_threads");
+	std::cout << "Building BVH with " << num_threads << " threads...\n";
+	mesh.buildAccel(num_threads);
 	std::chrono::steady_clock::time_point end_bvh = std::chrono::steady_clock::now();
 	std::cout << "Finished building BVH in " << std::chrono::duration_cast<std::chrono::milliseconds> (end_bvh - begin_bvh).count() << "ms" << std::endl;
 
