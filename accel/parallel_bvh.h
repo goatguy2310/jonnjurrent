@@ -177,21 +177,13 @@ public:
 			return;
 		}
 
-		// two pointer partitioning based on best split
+		// parallel partition array based on best split
 		double split_plane = centroid_min + centroid_extent * ((best_split_index + 1.0) / BINS_COUNT);
-		
-		int left = start;
-		int right = end - 1;
-		while (left <= right) {
-			if (indices[index_map[left]].centroid[best_axis] <= split_plane) {
-				left++;
-			} else {
-				std::swap(index_map[left], index_map[right]);
-				right--;
-			}
-		}
+		int pivot_idx = parallelPartition(index_map, temp_index_map, flags, *p_indices, start, end, best_axis, split_plane, parallel_threshold, num_threads);
 
-		int pivot_idx = std::clamp(left, start + 1, end - 1);
+		if (pivot_idx == start || pivot_idx == end) {
+			pivot_idx = start + (end - start) / 2;
+		}
 
 		int left_idx = node_counter.fetch_add(2);
 		int right_idx = left_idx + 1;

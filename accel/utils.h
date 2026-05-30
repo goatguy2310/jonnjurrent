@@ -65,10 +65,17 @@ inline int parallelPartition(std::vector<int>& index_map, std::vector<int>& temp
 
 	// fallback to sequential partition for small arrays
 	if (num_threads <= 1 || len < parallel_threshold) {
-		auto it = std::partition(index_map.begin() + start, index_map.begin() + end, [&](int idx) {
-			return indices[idx].centroid[best_axis] <= split_plane;
-		});
-		return std::distance(index_map.begin(), it);
+		int left = start;
+		int right = end - 1;
+		while (left <= right) {
+			if (indices[index_map[left]].centroid[best_axis] <= split_plane) {
+				left++;
+			} else {
+				std::swap(index_map[left], index_map[right]);
+				right--;
+			}
+		}
+		return std::clamp(left, start + 1, end - 1);
 	}
 
 	std::vector<int> local_left_cnt(num_threads, 0);
@@ -157,10 +164,17 @@ inline int ompPartition(std::vector<int>& index_map, std::vector<int>& temp_inde
 
 	// fallback to sequential partition for small arrays
 	if (num_threads <= 1 || len < 1024) {
-		auto it = std::partition(index_map.begin() + start, index_map.begin() + end, [&](int idx) {
-			return indices[idx].centroid[best_axis] <= split_plane;
-		});
-		return std::distance(index_map.begin(), it);
+		int left = start;
+		int right = end - 1;
+		while (left <= right) {
+			if (indices[index_map[left]].centroid[best_axis] <= split_plane) {
+				left++;
+			} else {
+				std::swap(index_map[left], index_map[right]);
+				right--;
+			}
+		}
+		return std::clamp(left, start + 1, end - 1);
 	}
 
 	std::vector<int> local_left_cnt(num_threads, 0);
