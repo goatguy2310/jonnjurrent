@@ -21,30 +21,35 @@ public:
 class BVH {
 public:
 	void build(const std::vector<Vector>& vertices, std::vector<TriangleIndices>& indices, int num_threads) {
+		p_vertices = &vertices;
+		p_indices = &indices;
+
 		bvh_nodes.clear();
 		bvh_nodes.reserve(indices.size() * 2); // reserve for binary tree
 		bvh_nodes.emplace_back();
 
-		std::vector<int> index_map(indices.size());
+		index_map.resize(indices.size());
 		std::iota(index_map.begin(), index_map.end(), 0);
 
-		buildBVHNode(vertices, indices, index_map, 0, 0, indices.size());
+		buildBVHNode(0, 0, indices.size());
 
-		std::vector<TriangleIndices> temp(indices.size());
+		indices_temp.resize(indices.size());
 		for (size_t i = 0; i < indices.size(); i++) {
-			temp[i] = std::move(indices[index_map[i]]);
+			indices_temp[i] = indices[index_map[i]];
 		}
-		indices = std::move(temp);
+		std::swap(indices, indices_temp);
 
 		if (Config::getInt("flatten")) flatten();
 	}
 
 	// node_idx: index in the node vector; start, end: index in the vertices vector
-	void buildBVHNode(const std::vector<Vector>& vertices, std::vector<TriangleIndices>& indices, std::vector<int>& index_map, int node_idx, int start, int end) {
+	void buildBVHNode(int node_idx, int start, int end) {
+		auto& indices = *p_indices;
+
 		bvh_nodes[node_idx].start = start;
 		bvh_nodes[node_idx].end = end;
 
-		bvh_nodes[node_idx].box = computeBounds(indices, index_map, start, end);
+		bvh_nodes[node_idx].box = computeBounds(start, end);
 		BoundingBox& bounds = bvh_nodes[node_idx].box;
 		if (end - start <= 2) return;
 
@@ -101,11 +106,12 @@ public:
 		bvh_nodes[node_idx].right = right_idx;
 		bvh_nodes[node_idx].has_child = true;
 
-		buildBVHNode(vertices, indices, index_map, left_idx, start, pivot_idx);
-		buildBVHNode(vertices, indices, index_map, right_idx, pivot_idx, end);
+		buildBVHNode(left_idx, start, pivot_idx);
+		buildBVHNode(right_idx, pivot_idx, end);
 	}
 
-	BoundingBox computeBounds(const std::vector<TriangleIndices>& indices, const std::vector<int>& index_map, int start, int end) {
+	BoundingBox computeBounds(int start, int end) {
+		auto& indices = *p_indices;
 		BoundingBox ret = BoundingBox::init();
 
 		for (int i = start; i < end; i++) ret.merge(indices[index_map[i]].bbox);
@@ -115,14 +121,14 @@ public:
 	void flatten() {
 		if (bvh_nodes.empty()) return;
 
-		std::vector<BVHNode> bvh_nodes_flat;
+		bvh_nodes_flat.clear();
 		bvh_nodes_flat.reserve(bvh_nodes.size());
 
 		bvh_nodes_flat.push_back(bvh_nodes[0]);
 
 		flattenNode(0, 0, bvh_nodes_flat);
 
-		bvh_nodes = std::move(bvh_nodes_flat);
+		std::swap(bvh_nodes, bvh_nodes_flat);
 	}
 
 	void flattenNode(int old_idx, int new_idx, std::vector<BVHNode>& bvh_nodes_flat) {
@@ -205,4 +211,10 @@ public:
 	}
 
 	std::vector<BVHNode> bvh_nodes;
+private:
+	const std::vector<Vector>* p_vertices = nullptr;
+	std::vector<TriangleIndices>* p_indices = nullptr;
+	std::vector<int> index_map;
+	std::vector<TriangleIndices> indices_temp;
+	std::vector<BVHNode> bvh_nodes_flat;
 };
