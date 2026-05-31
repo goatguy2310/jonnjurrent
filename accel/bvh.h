@@ -13,9 +13,11 @@
 class BVHNode {
 public:
 	BoundingBox box;
-	int start, end; // indices of the range in the original indices array
-	int left, right; // indices of the left and right child in the bvh_node array
-	bool has_child = false;
+	union {
+		struct { int left, right; }; // indices of the left and right child in the bvh_node array
+		struct { int start, count; }; // indices of the range in the original indices array
+	};
+	bool is_leaf = false;
 };
 
 class BVH {
@@ -46,8 +48,9 @@ public:
 	void buildBVHNode(int node_idx, int start, int end) {
 		auto& indices = *p_indices;
 
+		bvh_nodes[node_idx].is_leaf = true;
 		bvh_nodes[node_idx].start = start;
-		bvh_nodes[node_idx].end = end;
+		bvh_nodes[node_idx].count = end - start;
 
 		bvh_nodes[node_idx].box = computeBounds(start, end);
 		BoundingBox& bounds = bvh_nodes[node_idx].box;
@@ -131,9 +134,9 @@ public:
 		int right_idx = bvh_nodes.size();
 		bvh_nodes.emplace_back();
 
+		bvh_nodes[node_idx].is_leaf = false;
 		bvh_nodes[node_idx].left = left_idx;
 		bvh_nodes[node_idx].right = right_idx;
-		bvh_nodes[node_idx].has_child = true;
 
 		buildBVHNode(left_idx, start, pivot_idx);
 		buildBVHNode(right_idx, pivot_idx, end);
@@ -161,7 +164,7 @@ public:
 	}
 
 	void flattenNode(int old_idx, int new_idx, std::vector<BVHNode>& bvh_nodes_flat) {
-		if (!bvh_nodes[old_idx].has_child) return;
+		if (bvh_nodes[old_idx].is_leaf) return;
 
 		auto& old_node = bvh_nodes[old_idx];
 		int l_old = old_node.left, r_old = old_node.right;
@@ -184,7 +187,7 @@ public:
 
 		const BVHNode& node = bvh_nodes[idx];
 		bool found = false;
-		if (node.has_child) {
+		if (!node.is_leaf) {
 			auto t_left = bvh_nodes[node.left].box.intersect(ray, best_hit.t);
 			auto t_right = bvh_nodes[node.right].box.intersect(ray, best_hit.t);
 
@@ -203,7 +206,7 @@ public:
 				found = true;
 			}
 		} else {
-			for (int i = node.start; i < node.end; i++) {
+			for (int i = node.start; i < node.start + node.count; i++) {
 				const TriangleIndices& tri = indices[i];
 
 				const Vector& A = tri.A;

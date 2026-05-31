@@ -1,5 +1,5 @@
-obj_file=assets/Maria_C.obj
+obj_file=assets/Maria_Unbalanced.obj
 flatten=1
-num_threads=1
+num_threads=32
 parallel_threshold=1024
 adaptive_split=1

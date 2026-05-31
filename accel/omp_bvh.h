@@ -46,83 +46,117 @@ public:
 
 	// node_idx: index in the node vector; start, end: index in the vertices vector
 	void buildBVHNode(const std::vector<Vector>& vertices, std::vector<TriangleIndices>& indices, std::vector<int>& index_map, std::vector<int>& temp_index_map, std::vector<uint8_t>& flags, int node_idx, int start, int end, int num_threads, std::atomic<int>& node_counter) {
+		bvh_nodes[node_idx].is_leaf = true;
 		bvh_nodes[node_idx].start = start;
-		bvh_nodes[node_idx].end   = end;
+		bvh_nodes[node_idx].count = end - start;
 
 		bvh_nodes[node_idx].box = computeBounds(indices, index_map, start, end, num_threads);
 		BoundingBox& bounds = bvh_nodes[node_idx].box;
 
 		if (end - start <= 2) return;
 
-		int best_axis = -1, best_split_index = -1;
+		int best_axis = -1;
+		double max_extent = -1.0;
+		for (int i = 0; i < 3; i++) {
+			double extent = bounds.Bmax[i] - bounds.Bmin[i];
+			if (extent > max_extent) {
+				max_extent = extent;
+				best_axis = i;
+			}
+		}
 
-		// setup global bins for binned sah & reciprocal of total for each axis
-		Bin global_bins[3][BINS_COUNT];
-		double scales[3];
-		for (int axis = 0; axis < 3; axis++)
-			scales[axis] = BINS_COUNT / (bounds.Bmax[axis] - bounds.Bmin[axis]);
+		if (max_extent < eps) {
+			bvh_nodes[node_idx].box = bounds;
+			return;
+		}
 
+		// Find centroid bounds for tight bin mapping (required for single-axis SAH)
+		double centroid_min = std::numeric_limits<double>::infinity();
+		double centroid_max = -std::numeric_limits<double>::infinity();
+		
 		int len = end - start;
+		if (num_threads <= 1 || len < 1024) {
+			for (int i = start; i < end; i++) {
+				double c = indices[index_map[i]].centroid[best_axis];
+				centroid_min = std::min(centroid_min, c);
+				centroid_max = std::max(centroid_max, c);
+			}
+		} else {
+			#pragma omp parallel for num_threads(num_threads) reduction(min:centroid_min) reduction(max:centroid_max)
+			for (int i = start; i < end; i++) {
+				double c = indices[index_map[i]].centroid[best_axis];
+				centroid_min = std::min(centroid_min, c);
+				centroid_max = std::max(centroid_max, c);
+			}
+		}
+
+		double centroid_extent = centroid_max - centroid_min;
+		if (centroid_extent < eps) {
+			bvh_nodes[node_idx].box = bounds;
+			return;
+		}
+
+		int best_split_index = -1;
+
+		// setup global bins for binned sah
+		Bin global_bins[BINS_COUNT];
+		double scale = BINS_COUNT / centroid_extent;
+
 		if (num_threads <= 1 || len < 1024) {
 			// fallback to sequential binning
 			for (int i = start; i < end; i++) {
 				int idx = index_map[i];
-				for (int axis = 0; axis < 3; axis++) {
-					if (bounds.Bmax[axis] - bounds.Bmin[axis] < eps) continue;
-					double centroid = indices[idx].centroid[axis];
-					int bin_idx = std::clamp((int)((centroid - bounds.Bmin[axis]) * scales[axis]), 0, BINS_COUNT - 1);
-					global_bins[axis][bin_idx].count++;
-					global_bins[axis][bin_idx].bounds.merge(indices[idx].bbox);
-				}
+				double centroid = indices[idx].centroid[best_axis];
+				int bin_idx = (int)((centroid - centroid_min) * scale);
+				if (bin_idx < 0) bin_idx = 0;
+				else if (bin_idx >= BINS_COUNT) bin_idx = BINS_COUNT - 1;
+				global_bins[bin_idx].count++;
+				global_bins[bin_idx].bounds.merge(indices[idx].bbox);
 			}
 		} else {
 			// thread-local bins allocated per-thread, merged after
-			std::vector<std::vector<std::vector<Bin>>> local_bins(
-				num_threads, std::vector<std::vector<Bin>>(3, std::vector<Bin>(BINS_COUNT)));
+			std::vector<std::vector<Bin>> local_bins(num_threads, std::vector<Bin>(BINS_COUNT));
 
 			#pragma omp parallel for num_threads(num_threads) schedule(static)
 			for (int i = start; i < end; i++) {
 				int thread_id = omp_get_thread_num();
 				int idx = index_map[i];
-				for (int axis = 0; axis < 3; axis++) {
-					if (bounds.Bmax[axis] - bounds.Bmin[axis] < eps) continue;
-					double centroid = indices[idx].centroid[axis];
-					int bin_idx = std::clamp((int)((centroid - bounds.Bmin[axis]) * scales[axis]), 0, BINS_COUNT - 1);
-					local_bins[thread_id][axis][bin_idx].count++;
-					local_bins[thread_id][axis][bin_idx].bounds.merge(indices[idx].bbox);
-				}
+				double centroid = indices[idx].centroid[best_axis];
+				int bin_idx = (int)((centroid - centroid_min) * scale);
+				if (bin_idx < 0) bin_idx = 0;
+				else if (bin_idx >= BINS_COUNT) bin_idx = BINS_COUNT - 1;
+				local_bins[thread_id][bin_idx].count++;
+				local_bins[thread_id][bin_idx].bounds.merge(indices[idx].bbox);
 			}
 
 			// reduce phase: merge thread-local bins into global bins
 			for (int t = 0; t < num_threads; t++)
-				for (int axis = 0; axis < 3; axis++)
-					for (int b = 0; b < BINS_COUNT; b++) {
-						global_bins[axis][b].count += local_bins[t][axis][b].count;
-						global_bins[axis][b].bounds.merge(local_bins[t][axis][b].bounds);
-					}
+				for (int b = 0; b < BINS_COUNT; b++) {
+					global_bins[b].count += local_bins[t][b].count;
+					global_bins[b].bounds.merge(local_bins[t][b].bounds);
+				}
 		}
 
 		// evaluate sah cost to find best split
-		evaluateSAH(global_bins, bounds, end - start, best_axis, best_split_index);
+		evaluateSAH(global_bins, bounds, end - start, best_split_index);
 		
 		// if no split is better than parent, make it a leaf
-		if (best_axis == -1) {
+		if (best_split_index == -1) {
 			bvh_nodes[node_idx].box = bounds;
 			return;
 		}
 
 		// parallel partition array based on best split
-		double scale = BINS_COUNT / (bounds.Bmax[best_axis] - bounds.Bmin[best_axis]);
+		double split_plane = centroid_min + centroid_extent * ((best_split_index + 1.0) / BINS_COUNT);
 		int pivot_idx = ompPartition(index_map, temp_index_map, flags, indices,
-		                             start, end, best_axis, best_split_index,
-		                             bounds.Bmin[best_axis], scale, BINS_COUNT, num_threads);
+		                             start, end, best_axis, split_plane, num_threads);
 
 		int left_idx = node_counter.fetch_add(1);
 		int right_idx = node_counter.fetch_add(1);
 
+		bvh_nodes[node_idx].is_leaf = false;
 		bvh_nodes[node_idx].left = left_idx;
 		bvh_nodes[node_idx].right = right_idx;
-		bvh_nodes[node_idx].has_child = true;
 
 		// ── recurse: omp task for coarse splits, sequential below cutoff ─────
 		if (num_threads > 1 && len > cutoff_threshold) {
@@ -167,7 +201,7 @@ public:
 		if (bvh_nodes.empty()) return false;
 		const BVHNode& node = bvh_nodes[idx];
 		bool found = false;
-		if (node.has_child) {
+		if (!node.is_leaf) {
 			auto t_left  = bvh_nodes[node.left].box.intersect(ray, best_hit.t);
 			auto t_right = bvh_nodes[node.right].box.intersect(ray, best_hit.t);
 			int first = node.left, second = node.right;
@@ -181,7 +215,7 @@ public:
 			if (t_left && intersect(ray, vertices, indices, normals, uvs, best_hit, first)) found = true;
 			if (t_right && *t_right < best_hit.t && intersect(ray, vertices, indices, normals, uvs, best_hit, second)) found = true;
 		} else {
-			for (int i = node.start; i < node.end; i++) {
+			for (int i = node.start; i < node.start + node.count; i++) {
 				const TriangleIndices& tri = indices[i];
 				double uN = dot(ray.u, tri.N);
 				if (std::abs(uN) < eps) continue;
