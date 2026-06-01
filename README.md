@@ -1,5 +1,3 @@
-is this good readme or just slop
-
 # Jonnjurrent
 
 A highly concurrent C++23 research repository exploring multiple parallel Bounding Volume Hierarchy (BVH) builder implementations for a Physically Based Rendering (PBR) path tracer.
