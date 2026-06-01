@@ -1,7 +1,7 @@
 # Jonnjurrent
 
-A highly concurrent C++23 research repository exploring multiple parallel Bounding Volume Hierarchy (BVH) builder implementations for a Physically Based Rendering (PBR) path tracer.
-
+ A concurrent C++23 project exploring multiple parallel Bounding Volume Hierarchy builder implementations for a PBRT.
+ 
 ## Repository Structure
 
 * `accel/` - **Core Focus.** Parallel algorithms for BVH construction and traversal (e.g., SAH binning, spatial splits).
