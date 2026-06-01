@@ -35,8 +35,8 @@ make bench
 ```
 
 For modifying parameters, you can modify `config.txt` which will affect policy globally. In particular,
-`obj_file` (string): Path to the target OBJ file of the 3D mesh
-`flatten` (0/1): Apply post-processing flattening to the BVHs for cache
-`num_threads` (int): Maximum thread pool size allowed for parallel building, mainly to be used with `./build/main`
-`parallel_threshold` (int): Threshold of primitive for a node to switch from parallel to sequential
-`adaptive_split` (0/1): Toggle adaptive BVH children split based on number of primitives in children
+* `obj_file` (string): Path to the target OBJ file of the 3D mesh
+* `flatten` (0/1): Apply post-processing flattening to the BVHs for cache
+* `num_threads` (int): Maximum thread pool size allowed for parallel building, mainly to be used with `./build/main`
+* `parallel_threshold` (int): Threshold of primitive for a node to switch from parallel to sequential
+* `adaptive_split` (0/1): Toggle adaptive BVH children split based on number of primitives in children
