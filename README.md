@@ -4,7 +4,7 @@
  
 ## Repository Structure
 
-* `accel/` - **Core Focus.** Parallel algorithms for BVH construction and traversal (e.g., SAH binning, spatial splits).
+* `accel/` - **Focus of the project** Parallel algorithms for BVH construction and traversal (e.g., SAH binning, spatial splits).
 * `benchmark/` - Performance and scalability tests for the BVH builders.
 * `geometry/` - Ray-primitive intersections, triangle meshes, and scene.
 * `render/` - Minimal path tracing renderer.
@@ -34,7 +34,12 @@ make bench
 ./build/bench
 ```
 
-For modifying parameters, you can modify `config.txt` which will affect policy globally. In particular,
+To render Maria, download the OBJ file from here and put it in `assets/`:
+
+https://drive.google.com/file/d/1L4T9qa_PJtCNq_-77X69b1KEuG-ehpIj/view?usp=sharing
+
+
+For modifying parameters, you can make changes to `config.txt` which will affect policy globally. In particular,
 * `obj_file` (string): Path to the target OBJ file of the 3D mesh
 * `flatten` (0/1): Apply post-processing flattening to the BVHs for cache
 * `num_threads` (int): Maximum thread pool size allowed for parallel building, mainly to be used with `./build/main`
